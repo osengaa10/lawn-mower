@@ -1,8 +1,11 @@
 name: Deploy to GitHub Pages
 
+# Manual for now - day-to-day deploys use `npm run deploy` (see README).
+# To deploy on every push instead, add back:
+#   push:
+#     branches: [main]
+# and set Settings -> Pages -> Source to "GitHub Actions".
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

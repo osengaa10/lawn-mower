@@ -23,9 +23,15 @@ Open http://localhost:4000.
 
 ## Deploy to GitHub Pages
 
-1. Push this repo to GitHub.
-2. In the repo, go to **Settings → Pages → Build and deployment → Source** and choose **GitHub Actions**.
-3. Every push to `main` builds and deploys the game through [.github/workflows/deploy.yml](.github/workflows/deploy.yml). The site appears at `https://<you>.github.io/<repo>/`.
+The game must be **built** before it's published. GitHub Pages can't run the source files directly: you'd get a blank green screen and a plain letter icon.
+
+```bash
+npm run deploy
+```
+
+This builds the game and pushes the finished files to a `gh-pages` branch. The first time, go to **Settings → Pages → Build and deployment** and set **Source** to **Deploy from a branch**, branch **`gh-pages`**, folder **`/ (root)`**. The site appears at `https://<you>.github.io/<repo>/` a minute or so after each deploy.
+
+> Prefer automatic deploys on every push? [.github/workflows/deploy.yml](.github/workflows/deploy.yml) does that with GitHub Actions. Re-enable its `push` trigger and set the Pages source to **GitHub Actions**. This needs Actions to be usable on your account.
 
 To check the production build locally:
 
