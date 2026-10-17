@@ -6,60 +6,51 @@ A happy, frustration-free lawn mowing game for little kids, made for iPad and iP
 - Animals, flowers, and stars are hidden in the grass.
 - Finish a lawn to earn stars, which unlock new mowers.
 - The sticker book collects everything you find.
+- Every third lawn is a giant one that fills the whole screen.
 - You can't lose. There are no timers, and the last few bits of grass mow themselves.
 
 ## Run it locally
 
-```bash
-npm install
+It's plain HTML and JavaScript with no build step and no dependencies to install. Just run:
+
+```sh
 npm start
 ```
 
-Open http://localhost:4000.
+Then open http://localhost:4000 in your browser. It also prints a `http://192.168.x.x:4000` address you can open on an iPad or iPhone on the same Wi-Fi. Use `PORT=8080 npm start` for a different port.
 
-### Play on an iPad or iPhone over Wi-Fi
+Caching is turned off, so a refresh always shows your latest changes.
 
-`npm start` also listens on your local network. Vite prints a `Network:` address such as `http://192.168.1.20:4000`. Open it in Safari on a device on the same Wi-Fi.
+## Put it on GitHub Pages
 
-## Deploy to GitHub Pages
+1. Push this repo to GitHub.
+2. On GitHub, open **Settings → Pages**. Under **Build and deployment**, choose **Deploy from a branch**, pick `main` and `/ (root)`, then click **Save**.
+3. After about a minute it's live at `https://<your-username>.github.io/lawn-mower/`. Every push to `main` updates it.
 
-The game must be **built** before it's published. GitHub Pages can't run the source files directly: you'd get a blank green screen and a plain letter icon.
+## Make it feel like an app (iPad / iPhone)
 
-```bash
-npm run deploy
-```
+1. Open the link in **Safari**.
+2. Tap **Share → Add to Home Screen**.
+3. Launch it from the new icon. It opens full screen.
 
-This builds the game and pushes the finished files to a `gh-pages` branch. The first time, go to **Settings → Pages → Build and deployment** and set **Source** to **Deploy from a branch**, branch **`gh-pages`**, folder **`/ (root)`**. The site appears at `https://<you>.github.io/<repo>/` a minute or so after each deploy.
+Tips:
 
-> Prefer automatic deploys on every push? [.github/workflows/deploy.yml](.github/workflows/deploy.yml) does that with GitHub Actions. Re-enable its `push` trigger and set the Pages source to **GitHub Actions**. This needs Actions to be usable on your account.
-
-To check the production build locally:
-
-```bash
-npm run build
-npm run preview
-```
-
-## Tips for parents
-
-- **Make it feel like an app:** in Safari, tap **Share → Add to Home Screen**. The game then opens full screen with its own icon.
-- **No sound on iPhone?** Check the silent/ring switch. iOS mutes web audio when the phone is silenced.
-- **Lock the child in:** turn on **Guided Access** (Settings → Accessibility → Guided Access), then triple-click the side button while the game is open.
+- **Lock the child in:** turn on **Guided Access** (Settings → Accessibility → Guided Access). Triple-click the side or home button to start it.
+- **No sound on iPhone?** Flip the ring/silent switch off.
 - **Sound buttons:** the 🔊 and 🎵 buttons on the title screen turn off all sound or just the music.
-- **Saved progress:** stars, mowers, and stickers are saved on the device in the browser's storage.
-- **Start over:** to reset progress, open the browser console and run `localStorage.clear()`, or clear the website data for the site.
+- **Changed icon not showing?** iOS caches home-screen icons. Delete the shortcut and add it again.
+- **Start over:** stars, mowers, and stickers are saved in the browser. To reset them, run `localStorage.clear()` in the browser console.
 
-## How it's built
+## Files
 
-The game uses Vite, plain JavaScript, and HTML5 Canvas. All the art is drawn in code or uses emoji, and every sound is made with the Web Audio API, so there are no image or audio files to manage.
-
-| File | What it does |
-| --- | --- |
-| `src/main.js` | Boot, resize handling, game loop, screen switching |
-| `src/lawn.js` | Grass grid, lawn shapes, cutting, obstacles, hidden surprises |
-| `src/mower.js` | Mower movement (follows the finger) and drawing |
-| `src/levels.js` | The endless lawn sequence (size, shape, world, obstacles) |
-| `src/themes.js` | Worlds: sunny day, sunset, night, candy land, moon |
-| `src/catalog.js` | Stickers (hidden surprises) and unlockable mowers |
-| `src/screens/` | Title menu, play screen, celebration, garage, sticker book |
-| `src/audio.js`, `src/music.js`, `src/speech.js` | Synthesized sound effects, background music, spoken praise |
+- `index.html`: page setup, iOS full-screen settings
+- `src/main.js`: boot, resize handling, game loop, screen switching
+- `src/lawn.js`: grass grid, lawn shapes, cutting, obstacles, hidden surprises
+- `src/mower.js`: mower movement (follows the finger) and drawing
+- `src/levels.js`: the endless lawn sequence (size, shape, world, obstacles)
+- `src/themes.js`: worlds (sunny day, sunset, night, candy land, moon)
+- `src/catalog.js`: stickers (hidden surprises) and unlockable mowers
+- `src/screens/`: title menu, play screen, celebration, garage, sticker book
+- `src/audio.js`, `src/music.js`, `src/speech.js`: sound effects, background music, and spoken praise, all generated in code
+- `scripts/serve.js`: the local test server behind `npm start`
+- `icons/`: home-screen icons
