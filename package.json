@@ -1,0 +1,16 @@
+{
+  "name": "lawn-mower",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Mighty Mower - a simple, happy lawn mowing game for little kids",
+  "type": "module",
+  "scripts": {
+    "start": "vite",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.3.4"
+  }
+}
