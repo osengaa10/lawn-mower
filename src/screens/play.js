@@ -27,17 +27,35 @@ export class PlayScreen {
     this.dispProgress = 0;
     this.starBump = 0;
     this.bookBump = 0;
+    this.pendingStars = 0; // stars already banked but still flying to the counter
+    this.saveT = 0;
   }
 
   enter() {
+    if (!this.lawn && this.g.save.current) this.resumeLawn(this.g.save.current);
     if (!this.lawn || this.state === 'celebrate') this.newLawn();
     else this.layout();
+    // the finger that tapped Play shouldn't start steering until it's lifted
+    this.ignoreTouch = !!this.g.input?.down;
     // the chosen mower might have changed in the garage
     if (this.mower) this.mower.skin = MOWER_BY_ID[this.g.save.mower] || MOWER_BY_ID.red;
   }
 
   leave() {
     stopEngine();
+    this.g.persist();
+  }
+
+  // What to save for the lawn in progress: undefined = no lawn loaded yet (keep
+  // whatever is saved), null = nothing to resume (between lawns).
+  snapshot() {
+    if (!this.lawn) return undefined;
+    if (this.state !== 'mow' && this.state !== 'finish') return null;
+    const { lawn, mower } = this;
+    return {
+      ...lawn.serialize(),
+      mower: { gx: (mower.x - lawn.ox) / lawn.cell, gy: (mower.y - lawn.oy) / lawn.cell, heading: mower.heading },
+    };
   }
 
   hudTop() {
@@ -71,11 +89,33 @@ export class PlayScreen {
     const def = levelDef(g.save.lawns);
     const top = this.hudTop();
     const pad = this.pad();
-    this.lawn = new Lawn(def, g.W - pad * 2, g.H - top - pad, mowerCell(g.W, g.H), this.pickSurprises(def));
+    this.begin(new Lawn(def, g.W - pad * 2, g.H - top - pad, mowerCell(g.W, g.H), this.pickSurprises(def)));
+    if (g.save.lawns === 0) say('Touch the grass, and drive the mower!', { force: true });
+    else if (def.giant) say(pick(['A giant lawn!', 'Wow, a super big lawn!']), { force: true });
+    else say(pick(["Let's mow!", 'Ready, set, mow!', 'Here we go!', 'A new lawn!']), { force: true });
+    g.persist();
+  }
+
+  // Pick up the lawn that was in progress when the app was closed.
+  resumeLawn(data) {
+    const lawn = Lawn.restore(levelDef(this.g.save.lawns), data);
+    if (!lawn) return;
+    this.begin(lawn, data.mower);
+    this.hasMoved = true;
+    this.milestones = this.milestones.filter((m) => m > lawn.progress);
+    this.dispProgress = lawn.progress;
+    say("Let's keep mowing!", { force: true });
+  }
+
+  begin(lawn, at = null) {
+    const { g } = this;
+    const def = lawn.def;
+    this.lawn = lawn;
     this.mower = null;
     this.layout();
-    const s = this.lawn.toPx(this.lawn.start.gx, this.lawn.start.gy);
+    const s = this.lawn.toPx(at ? at.gx : lawn.start.gx, at ? at.gy : lawn.start.gy);
     this.mower = new Mower(MOWER_BY_ID[g.save.mower] || MOWER_BY_ID.red, s.x, s.y, this.lawn.mowerSize);
+    if (at) this.mower.heading = at.heading || 0;
     this.state = 'mow';
     this.t = 0;
     this.idle = 0;
@@ -89,10 +129,8 @@ export class PlayScreen {
     this.hasMoved = false;
     this.actors = [];
     this.particles.clear();
+    this.pendingStars = 0;
     this.ambient = new Ambient(def.theme.ambient, g.W, g.H);
-    if (g.save.lawns === 0) say('Touch the grass, and drive the mower!', { force: true });
-    else if (def.giant) say(pick(['A giant lawn!', 'Wow, a super big lawn!']), { force: true });
-    else say(pick(["Let's mow!", 'Ready, set, mow!', 'Here we go!', 'A new lawn!']), { force: true });
   }
 
   narrow() {
@@ -145,6 +183,10 @@ export class PlayScreen {
 
   up() {
     this.ignoreTouch = false;
+    // save after each drag; the mower glides to a stop, so save again once it has
+    this.g.persist();
+    clearTimeout(this.stopSave);
+    this.stopSave = setTimeout(() => this.g.persist(), 700);
   }
 
   update(dt) {
@@ -175,6 +217,11 @@ export class PlayScreen {
         if (cut.length) this.onCut(cut);
       }
       this.trails(dt);
+      this.saveT += dt;
+      if (this.saveT > 2) {
+        this.saveT = 0;
+        g.persist();
+      }
 
       const prog = lawn.progress;
       while (this.milestones.length && prog >= this.milestones[0]) {
@@ -305,6 +352,9 @@ export class PlayScreen {
       sfx.pop();
       this.particles.burst(p.x, p.y, 14, sc, ['#ffd54f', '#fff59d', '#ffffff']);
       this.actors.push({ type: 'star', x: p.x, y: p.y, sx: p.x, sy: p.y, t: 0 });
+      g.save.stars += 1;
+      this.pendingStars++;
+      g.persist();
       return;
     }
     const s = kind.s;
@@ -344,8 +394,7 @@ export class PlayScreen {
           a.y = (1 - k) ** 2 * a.sy + 2 * (1 - k) * k * my + k * k * this.starPos.y;
           if (k >= 1 && !a.done) {
             a.done = true;
-            this.g.save.stars += 1;
-            this.g.persist();
+            this.pendingStars = Math.max(0, this.pendingStars - 1);
             this.starBump = 1;
             sfx.coin();
             this.particles.burst(this.starPos.x, this.starPos.y, 10, 0.6, ['#ffd54f', '#ffffff']);
@@ -506,6 +555,6 @@ export class PlayScreen {
     ctx.fill();
     const sb = 1 + this.starBump * 0.4;
     drawStar(ctx, sp.x - 8, sp.y, 17 * sb, '#ffd54f', '#f9a825', -Math.PI / 2);
-    drawText(ctx, String(this.g.save.stars), sp.x + 30, sp.y + 1, 24 * (1 + this.starBump * 0.2), { color: '#5d4037', stroke: null });
+    drawText(ctx, String(this.g.save.stars - this.pendingStars), sp.x + 30, sp.y + 1, 24 * (1 + this.starBump * 0.2), { color: '#5d4037', stroke: null });
   }
 }

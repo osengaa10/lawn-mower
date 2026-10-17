@@ -22,6 +22,9 @@ const game = {
   screen: null,
   screens: {},
   persist() {
+    // include the lawn in progress so closing the app mid-lawn loses nothing
+    const current = this.screens.play?.snapshot();
+    if (current !== undefined) this.save.current = current;
     writeSave(this.save);
   },
   go(name) {
@@ -71,10 +74,17 @@ const onResize = () => {
 window.addEventListener('resize', onResize);
 window.addEventListener('orientationchange', onResize);
 
+// iOS may close a backgrounded app without warning, so save the moment it's hidden.
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) suspendAudio();
-  else resumeAudio();
+  if (document.hidden) {
+    game.persist();
+    suspendAudio();
+  } else resumeAudio();
 });
+window.addEventListener('pagehide', () => game.persist());
+
+// Ask the browser not to clear saved progress when storage runs low.
+navigator.storage?.persist?.().catch(() => {});
 
 resize();
 setMuted(game.save.muted);
@@ -95,6 +105,12 @@ game.screens = {
 };
 game.go('menu');
 startMusic();
+
+// ---------- Offline support ----------
+
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
 
 // handy for testing in the browser console
 window.__game = game;

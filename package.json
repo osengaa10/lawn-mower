@@ -5,6 +5,7 @@
   "description": "Mighty Mower - a simple, happy lawn mowing game for little kids",
   "type": "module",
   "scripts": {
-    "start": "node scripts/serve.js"
+    "start": "node scripts/serve.js",
+    "test": "node --test"
   }
 }

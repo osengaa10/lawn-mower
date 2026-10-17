@@ -1,4 +1,5 @@
 import { DPR, drawEmoji, pick, shuffle } from './util.js';
+import { STICKER_BY_ID } from './catalog.js';
 
 export const OUT = 0;
 export const TALL = 1;
@@ -217,6 +218,48 @@ export class Lawn {
     this.plants = []; // flowers etc. that pop up and stay on the lawn
     this.bgLayer = document.createElement('canvas');
     this.tallLayer = document.createElement('canvas');
+  }
+
+  // Everything needed to rebuild this exact lawn later (saved so a closed app resumes mid-lawn).
+  serialize() {
+    return {
+      n: this.def.n,
+      seed: this.seed,
+      cols: this.cols,
+      rows: this.rows,
+      grid: this.grid.join(''),
+      start: this.start,
+      total: this.total,
+      cutCount: this.cutCount,
+      obstacles: this.obstacles.map(({ kind, gx, gy, gr }) => ({ kind, gx, gy, gr })),
+      surprises: [...this.surprises].map(([i, k]) => [i, k.type === 'star' ? '*' : k.s.id]),
+      plants: this.plants.map(({ e, gx, gy }) => ({ e, gx, gy })),
+    };
+  }
+
+  static restore(def, d) {
+    if (!d || d.n !== def.n || !d.grid || d.grid.length !== d.cols * d.rows) return null;
+    const L = Object.create(Lawn.prototype);
+    L.def = def;
+    L.theme = def.theme;
+    L.seed = d.seed;
+    L.cols = d.cols;
+    L.rows = d.rows;
+    L.path = shapePath(def.shape, d.cols, d.rows);
+    L.grid = Uint8Array.from(d.grid, Number);
+    L.start = d.start;
+    L.total = d.total;
+    L.cutCount = d.cutCount;
+    L.obstacles = d.obstacles.map((o) => ({ ...o, wobble: 0, x: 0, y: 0, r: 0 }));
+    L.surprises = new Map();
+    for (const [i, id] of d.surprises) {
+      if (id === '*') L.surprises.set(i, { type: 'star' });
+      else if (STICKER_BY_ID[id]) L.surprises.set(i, { type: 'sticker', s: STICKER_BY_ID[id] });
+    }
+    L.plants = d.plants.map((p) => ({ ...p, age: 10, ph: Math.random() * 6 }));
+    L.bgLayer = document.createElement('canvas');
+    L.tallLayer = document.createElement('canvas');
+    return L;
   }
 
   get progress() {

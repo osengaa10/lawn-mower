@@ -19,7 +19,9 @@ npm start
 
 Then open http://localhost:4000 in your browser. It also prints a `http://192.168.x.x:4000` address you can open on an iPad or iPhone on the same Wi-Fi. Use `PORT=8080 npm start` for a different port.
 
-Caching is turned off, so a refresh always shows your latest changes.
+Caching is turned off, so a refresh always shows your latest changes. Offline mode only turns on for the published HTTPS site, not for local testing.
+
+`npm test` checks that every game file is in the offline cache list in `sw.js`. If you add or remove a file, update `FILES` there and bump `CACHE`.
 
 ## Put it on GitHub Pages
 
@@ -31,7 +33,7 @@ Caching is turned off, so a refresh always shows your latest changes.
 
 1. Open the link in **Safari**.
 2. Tap **Share → Add to Home Screen**.
-3. Launch it from the new icon. It opens full screen.
+3. Launch it from the new icon. It opens full screen and works offline after the first launch.
 
 Tips:
 
@@ -39,7 +41,10 @@ Tips:
 - **No sound on iPhone?** Flip the ring/silent switch off.
 - **Sound buttons:** the 🔊 and 🎵 buttons on the title screen turn off all sound or just the music.
 - **Changed icon not showing?** iOS caches home-screen icons. Delete the shortcut and add it again.
-- **Start over:** stars, mowers, and stickers are saved in the browser. To reset them, run `localStorage.clear()` in the browser console.
+- **Progress is saved on the device:** stars, mowers, stickers, and even a half-mowed lawn. Closing the app mid-lawn picks up right where he left off.
+- **The home-screen app and Safari keep separate progress.** Once he plays from the home-screen icon, keep using the icon.
+- **Updates:** after you push an update, the game picks it up the second time it's opened.
+- **Start over:** to reset progress, run `localStorage.clear()` in the browser console.
 
 ## Files
 
@@ -52,5 +57,7 @@ Tips:
 - `src/catalog.js`: stickers (hidden surprises) and unlockable mowers
 - `src/screens/`: title menu, play screen, celebration, garage, sticker book
 - `src/audio.js`, `src/music.js`, `src/speech.js`: sound effects, background music, and spoken praise, all generated in code
+- `sw.js`: offline support (caches the game after the first launch)
 - `scripts/serve.js`: the local test server behind `npm start`
+- `test/`: checks for `npm test`
 - `icons/`: home-screen icons
