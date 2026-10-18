@@ -3,13 +3,14 @@ import { setupInput } from './input.js';
 import { resumeAudio, setMusicOn, setMuted, suspendAudio } from './audio.js';
 import { startMusic } from './music.js';
 import { setSpeechEnabled } from './speech.js';
-import { DPR } from './util.js';
+import { DPR, drawEmoji, drawText } from './util.js';
+import { loadModels } from './world3d/models.js';
 import { MenuScreen } from './screens/menu.js';
 import { PlayScreen } from './screens/play.js';
 import { GarageScreen } from './screens/garage.js';
 import { StickerScreen } from './screens/stickers.js';
 import { StreetScreen } from './screens/street.js';
-import { getRenderer, resizeRenderer, showWorld } from './world3d/renderer.js';
+import { getRenderer, quality, resizeRenderer, setQuality, settleQuality, showWorld, trackFrame } from './world3d/renderer.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -34,6 +35,7 @@ const game = {
     this.screen = this.screens[name];
     this.screen.enter?.();
     showWorld(!!this.screen.uses3D);
+    settleQuality();
   },
   setMuted(m) {
     this.save.muted = m;
@@ -101,6 +103,21 @@ game.input = setupInput(canvas, {
   up: (x, y) => game.screen?.up?.(x, y),
 });
 
+// a happy little loading screen while the animals load
+let loading = true;
+(function drawLoading(t0 = performance.now()) {
+  if (!loading) return;
+  const t = (performance.now() - t0) / 1000;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = '#7cc96b';
+  ctx.fillRect(0, 0, game.W, game.H);
+  drawEmoji(ctx, '🚜', game.W / 2 + Math.sin(t * 3) * 40, game.H / 2 - Math.abs(Math.sin(t * 8)) * 10, 90);
+  drawText(ctx, '...', game.W / 2, game.H / 2 + 80, 40, { color: '#ffffff', stroke: 'rgba(0,0,0,0.25)' });
+  requestAnimationFrame(() => drawLoading(t0));
+})();
+await loadModels();
+loading = false;
+
 game.screens = {
   menu: new MenuScreen(game),
   play: new PlayScreen(game),
@@ -140,14 +157,23 @@ game.debug = {
   street() {
     game.go('street');
   },
+  // 0 = best, 1 = fewer pixels and smaller shadows, 2 = no real shadows
+  quality(level) {
+    setQuality(level);
+    quality.locked = true;
+  },
 };
 
 let last = performance.now();
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const real = (now - last) / 1000;
+  const dt = Math.min(0.05, real);
   last = now;
   game.screen.update(dt);
-  if (game.screen.uses3D) game.screen.render3d(getRenderer());
+  if (game.screen.uses3D) {
+    game.screen.render3d(getRenderer());
+    trackFrame(real);
+  }
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.clearRect(0, 0, game.W, game.H);
   game.screen.draw(ctx);

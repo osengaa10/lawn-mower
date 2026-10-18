@@ -1,5 +1,5 @@
 import { MOWERS } from '../catalog.js';
-import { drawMower } from '../mower.js';
+import { drawMower3D } from '../world3d/thumbs.js';
 import { sfx } from '../audio.js';
 import { say } from '../speech.js';
 import { Button, hitButtons, playTriangle } from '../ui.js';
@@ -162,13 +162,13 @@ export class Celebration {
           ctx.fill();
         }
         ctx.restore();
-        drawMower(ctx, this.unlock, cx, midY, ms * gk, Math.sin(t * 2) * 0.3, t, { moving: 0.3 });
+        drawMower3D(ctx, this.unlock, cx, midY, ms * gk, Math.sin(t * 2) * 0.3, t, { moving: 0.3 });
       }
     } else if (this.next) {
       // a teaser of the next mower, so there's always something to work toward
       const nk = clamp((t - 2) / 0.4, 0, 1);
       ctx.globalAlpha = nk;
-      drawMower(ctx, LOCKED, cx - ms * 0.55, midY, ms * 0.8, 0, t, { bob: false });
+      drawMower3D(ctx, LOCKED, cx - ms * 0.55, midY, ms * 0.8, 0, t, { bob: false });
       const bx = cx + ms * 0.1;
       const bw = Math.min(c.w * 0.38, ms * 1.6);
       const bh = 22;

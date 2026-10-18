@@ -1,5 +1,5 @@
 // Emoji as standing cardboard cutouts in the 3D world, plus soft round shadows.
-import { THREE } from './renderer.js';
+import { BLOB_LAYER, THREE } from './renderer.js';
 import { EMOJI_FONT } from '../util.js';
 
 const textures = new Map();
@@ -27,7 +27,7 @@ export function emojiTexture(ch) {
 // A billboard that always faces the camera. size is its height in cells.
 // The anchor is at the bottom middle, so position it on the ground.
 export function makeEmoji(ch, size = 1, { anchorY = 0.08, depthTest = true } = {}) {
-  const mat = new THREE.SpriteMaterial({ map: emojiTexture(ch), transparent: true, alphaTest: 0.25, depthTest });
+  const mat = new THREE.SpriteMaterial({ map: emojiTexture(ch), transparent: true, alphaTest: 0.25, depthTest, toneMapped: false });
   const s = new THREE.Sprite(mat);
   s.center.set(0.5, anchorY);
   s.scale.set(size, size, 1);
@@ -61,13 +61,16 @@ function shadowTexture() {
 const shadowGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
 
 // A soft dark blob that sits just above the ground. w/d are width and depth in cells.
-export function makeShadow(w = 1, d = w, opacity = 1) {
+// caster: the thing above it casts a real shadow, so the blob only shows when
+// real shadows are turned off.
+export function makeShadow(w = 1, d = w, opacity = 1, caster = false) {
   const m = new THREE.Mesh(
     shadowGeo,
     new THREE.MeshBasicMaterial({ map: shadowTexture(), transparent: true, depthWrite: false, opacity }),
   );
   m.scale.set(w, 1, d);
   m.renderOrder = 1;
+  if (caster) m.layers.set(BLOB_LAYER);
   return m;
 }
 

@@ -125,11 +125,12 @@ export class Effects3D {
     }
   }
 
-  clippings(x, y, z, colors, n = 3) {
+  // dir: optional angle to spray toward (out of the mower's chute)
+  clippings(x, y, z, colors, n = 3, dir = null) {
     for (let i = 0; i < n; i++) {
-      const a = rand(0, Math.PI * 2);
-      const s = rand(1.5, 4);
-      this.solid.spawn(x, y + 0.3, z, Math.cos(a) * s, rand(3, 6.5), Math.sin(a) * s, pick(colors), rand(0.14, 0.22), rand(0.7, 1.3), { g: 20, drag: 1.5, ground: true });
+      const a = dir === null ? rand(0, Math.PI * 2) : dir + rand(-0.45, 0.45);
+      const s = dir === null ? rand(1.5, 4) : rand(3, 6);
+      this.solid.spawn(x, y + (dir === null ? 0.3 : 0), z, Math.cos(a) * s, rand(2, dir === null ? 6.5 : 4.5), Math.sin(a) * s, pick(colors), rand(0.14, 0.22), rand(0.7, 1.3), { g: 20, drag: 1.5, ground: true });
     }
   }
 

@@ -30,7 +30,7 @@ export function levelDef(n) {
   if (shaped) long *= 1.15;
   long = Math.round(long);
   const short = Math.round(long * (shaped ? 0.8 : 0.7));
-  const obstacles = n < 2 ? 0 : n < 5 ? 1 : Math.min(1 + Math.floor((n - 2) / 3), 4);
+  const obstacles = n < 2 ? 0 : n < 5 ? 1 : Math.min(1 + Math.floor((n - 2) / 3), 3);
   const visit = Math.floor(n / (THEMES.length * 2)); // how many times we've been round all the worlds
   const pics = THEME_PICTURES[theme.id];
   const owners = OWNERS[theme.id];

@@ -16,10 +16,8 @@ export function paintLawn(g, lawn, { picture = true } = {}) {
   g.fillStyle = 'rgba(0,0,0,0.18)';
   g.fill(path);
   g.restore();
-  g.lineJoin = 'round';
-  g.lineWidth = 0.7;
-  g.strokeStyle = theme.edge;
-  g.stroke(path);
+  // a neat edging strip all the way round
+  grow(g, path, 0.3, theme.border);
 
   g.save();
   g.clip(path);
@@ -30,8 +28,6 @@ export function paintLawn(g, lawn, { picture = true } = {}) {
     if (landscape) g.fillRect(s, 0, MOWER_CELLS + 0.02, rows);
     else g.fillRect(0, s, cols, MOWER_CELLS + 0.02);
   }
-  g.fillStyle = 'rgba(255,255,255,0.06)';
-  for (let r = 0; r < rows; r++) for (let c = r % 2; c < cols; c += 2) g.fillRect(c, r, 1, 1);
   if (picture && lawn.pictureBox) {
     const b = lawn.pictureBox;
     g.globalAlpha = 0.92;
@@ -56,6 +52,19 @@ export function paintLawn(g, lawn, { picture = true } = {}) {
   g.restore();
 }
 
+// Fill the shape grown outward by d, so only its outer edge shows (cloud
+// shapes are many overlapping circles, and stroking would outline each one).
+function grow(g, path, d, color) {
+  g.fillStyle = color;
+  for (let k = 0; k < 16; k++) {
+    const a = (k / 16) * Math.PI * 2;
+    g.save();
+    g.translate(Math.cos(a) * d, Math.sin(a) * d);
+    g.fill(path);
+    g.restore();
+  }
+}
+
 function paintYard(g, lawn, x0, z0, w, h) {
   const { theme } = lawn;
   g.fillStyle = theme.bg[1];
@@ -65,14 +74,28 @@ function paintYard(g, lawn, x0, z0, w, h) {
   gr.addColorStop(1, theme.bg[1]);
   g.fillStyle = gr;
   g.fillRect(x0, z0, w, h);
+  // a few big soft patches so the yard isn't one flat color
   const rng = mulberry32(lawn.seed + 7);
-  const n = Math.floor(w * h * 1.4);
-  for (let i = 0; i < n; i++) {
-    g.globalAlpha = 0.25 + rng() * 0.45;
-    g.fillStyle = theme.sprinkle[Math.floor(rng() * theme.sprinkle.length)];
-    g.beginPath();
-    g.arc(x0 + rng() * w, z0 + rng() * h, 0.04 + rng() * 0.07, 0, Math.PI * 2);
-    g.fill();
+  for (let i = 0; i < 18; i++) {
+    const x = x0 + rng() * w;
+    const y = z0 + rng() * h;
+    const r = 3 + rng() * 6;
+    const tone = rng() < 0.5 ? '255,255,255' : '0,0,0';
+    const a = tone[0] === '2' ? 0.07 : 0.05;
+    const blot = g.createRadialGradient(x, y, 0, x, y, r);
+    blot.addColorStop(0, `rgba(${tone},${a})`);
+    blot.addColorStop(1, `rgba(${tone},0)`);
+    g.fillStyle = blot;
+    g.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  // stepping stones from the front door down to the lawn
+  if (theme.path) {
+    g.fillStyle = theme.path;
+    for (let k = 0; k < 3; k++) {
+      g.beginPath();
+      g.ellipse(lawn.cols / 2 + (k % 2 ? 0.15 : -0.15), -0.9 - k * 0.75, 0.42, 0.27, 0, 0, Math.PI * 2);
+      g.fill();
+    }
   }
   g.globalAlpha = 1;
 }
@@ -138,12 +161,14 @@ export class Ground {
       tallColor: { value: new THREE.Color(theme.tallBase) },
     });
     this.mesh = new THREE.Mesh(geo, mat);
+    this.mesh.receiveShadow = true;
 
     // plain ground out to the horizon
     this.far = new THREE.Mesh(
       new THREE.PlaneGeometry(600, 600).rotateX(-Math.PI / 2).translate(cols / 2, -0.03, rows / 2),
       new THREE.MeshLambertMaterial({ color: theme.bg[1] }),
     );
+    this.far.receiveShadow = true;
     this.group = new THREE.Group();
     this.group.add(this.far, this.mesh);
   }

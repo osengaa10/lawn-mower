@@ -3,6 +3,7 @@
 // They never get in the way of mowing.
 import { makeBalloon, makePresent, makeSprinkler } from './world3d/props.js';
 import { makeEmoji, makeShadow } from './world3d/sprites.js';
+import { makeAnimal } from './world3d/animals.js';
 import { sfx } from './audio.js';
 import { say } from './speech.js';
 import { clamp, pick, rand } from './util.js';
@@ -178,9 +179,9 @@ class Helper {
     this.play = play;
     const { lawn } = play;
     const e = HELPERS[lawn.theme.id] || '🐄';
-    this.sprite = makeEmoji(e, 2.2);
-    this.shadow = makeShadow(1.8, 1, 0.7);
-    play.world.add(this.sprite, this.shadow);
+    this.actor = makeAnimal(e, 2.2);
+    this.shadow = makeShadow(1.8, 1, 0.7, this.actor.isModel);
+    play.world.add(this.actor.root, this.shadow);
     const left = play.mower.x > lawn.cols / 2;
     this.x = left ? -3 : lawn.cols + 3;
     this.y = lawn.rows * rand(0.3, 0.7);
@@ -256,9 +257,16 @@ class Helper {
       fx.emoji('💕', this.x, lawn.height(this.x, this.y) + 2.4, this.y, { size: 1, life: 1.2, vy: 1.2 });
     }
     const gy = lawn.height(this.x, this.y);
-    const bob = walking ? Math.abs(Math.sin(this.t * 6)) * 0.2 : Math.abs(Math.sin(this.t * 10)) * 0.06;
-    this.sprite.position.set(this.x, gy + bob + Math.sin(this.hop * Math.PI) * 1.2, this.y);
-    this.sprite.material.rotation = walking ? Math.sin(this.t * 6) * 0.06 : 0;
+    const a = this.actor;
+    const bob = a.isModel ? 0 : walking ? Math.abs(Math.sin(this.t * 6)) * 0.2 : Math.abs(Math.sin(this.t * 10)) * 0.06;
+    a.root.position.set(this.x, gy + bob + Math.sin(this.hop * Math.PI) * 1.2, this.y);
+    if (a.isModel) {
+      if (walking) {
+        a.face(dx, dy);
+        a.setMotion(this.leaving ? 3 : 2.2);
+      } else a.play('eat');
+    } else a.setTilt(walking ? Math.sin(this.t * 6) * 0.06 : 0);
+    a.update(dt);
     this.shadow.position.set(this.x, gy + 0.04, this.y);
     return false;
   }
@@ -266,7 +274,8 @@ class Helper {
   finish() {}
 
   remove() {
-    this.play.world.remove(this.sprite, this.shadow);
+    this.play.world.remove(this.actor.root, this.shadow);
+    this.actor.dispose();
   }
 }
 

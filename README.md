@@ -2,7 +2,8 @@
 
 A happy, frustration-free lawn mowing game for little kids, made for iPad and iPhone.
 
-- Touch anywhere and the mower drives to your finger. The lawn is a little 3D world seen from above.
+- Touch anywhere and the mower drives to your finger. The lawn is a little 3D world seen from above, with real shadows, swaying grass and animated animal friends.
+- The title screen is a little 3D front yard where your mower cuts stripes while the puppy follows along.
 - Every lawn hides a giant picture (a dinosaur, a rocket, a kitty...). Mowing uncovers it, and at the end the camera swoops up to show it off.
 - Each lawn belongs to someone's house. Finished lawns stay on a street you can swipe back along to see every picture.
 - Animal friends live on the lawn: a puppy follows the mower, bunnies hop out of the way, owls fly off. The 📣 horn makes everyone jump.
@@ -26,6 +27,8 @@ Then open http://localhost:4000 in your browser. It also prints a `http://192.16
 Caching is turned off, so a refresh always shows your latest changes. Offline mode only turns on for the published HTTPS site, not for local testing.
 
 `npm test` checks that every game file is in the offline cache list in `sw.js`. If you add or remove a file, update `FILES` there and bump `CACHE`.
+
+On a slow device the game turns its quality down by itself (fewer pixels, then no real shadows). `__game.debug.quality(0)` forces full quality, `2` the lowest.
 
 ## Put it on GitHub Pages
 
@@ -72,10 +75,17 @@ In the browser console:
 - `src/buddies.js`, `src/powerups.js`, `src/events.js`: animal friends and the horn, power-ups, mid-lawn surprises
 - `src/themes.js`: worlds (sunny day, sunset, night, candy land, moon)
 - `src/catalog.js`: stickers, unlockable mowers, house owners
-- `src/world3d/`: the 3D side, built on three.js: camera, ground and picture painting, grass, mower model, props and houses, particles, emoji cutouts
+- `src/world3d/`: the 3D side, built on three.js:
+  - `renderer.js`: the shared renderer, lights, sky, shadows, materials and the automatic quality setting
+  - `mower3d.js`: the ride-on mower model; `thumbs.js` draws it into the garage cards
+  - `houses.js`: a house for every world (cottage, barn, log cabin, gingerbread, moon dome)
+  - `scenery.js`: the yard (fences, trees, bushes, flower beds) and the obstacle models
+  - `animals.js`, `models.js`: animated animal models, with an emoji cutout for any animal without one
+  - `ground.js`, `grass.js`, `props.js`, `ambient3d.js`, `effects3d.js`, `camera.js`, `sprites.js`: the ground and its painted picture, tall grass, trees/rocks/ramps/power-ups, drifting butterflies and fireflies, particles, the play camera, emoji cutouts and shadows
 - `src/screens/`: title menu, play screen, street, celebration, garage, sticker book
 - `src/audio.js`, `src/music.js`, `src/speech.js`: sound effects, background music, and spoken words, all generated in code
-- `vendor/three.module.min.js`: three.js r169 (the same copy as monster-truck)
+- `vendor/three.module.min.js`: three.js r169 (the same copy as monster-truck). `vendor/addons/` has the matching r169 add-ons (glTF loader, meshopt decoder, skeleton utils, rounded boxes, room lighting)
+- `assets/models/`: the animal models (CC0, by Quaternius). See `assets/CREDITS.md` for where each came from
 - `sw.js`: offline support (caches the game after the first launch)
 - `scripts/serve.js`: the local test server behind `npm start`
 - `test/`: checks for `npm test`

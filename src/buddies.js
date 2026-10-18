@@ -1,7 +1,8 @@
 // Animal friends that live on each lawn and react to the mower: a puppy that
 // follows along, bunnies that hop out of the way, birds that fly up when
 // he gets close. The horn makes all of them jump.
-import { makeEmoji, makeShadow } from './world3d/sprites.js';
+import { makeShadow } from './world3d/sprites.js';
+import { makeAnimal } from './world3d/animals.js';
 import { sfx } from './audio.js';
 import { clamp, pick, rand } from './util.js';
 
@@ -41,10 +42,10 @@ export class Buddies {
         y = lawn.start.gy + 1;
       }
       const size = b.kind === 'chain' && leader ? 0.9 : 1.3;
-      const sprite = makeEmoji(b.e, size);
-      const shadow = makeShadow(size * 0.7, size * 0.45, 0.7);
-      play.world.add(sprite, shadow);
-      const bud = { ...b, x, y, h: 0, vh: 0, vx: 0, vy: 0, spin: 0, size, sprite, shadow, t: rand(0, 3), flee: 0, flying: false, dest: null, leader };
+      const actor = makeAnimal(b.e, size);
+      const shadow = makeShadow(size * 0.7, size * 0.45, 0.7, actor.isModel);
+      play.world.add(actor.root, shadow);
+      const bud = { ...b, x, y, h: 0, vh: 0, vx: 0, vy: 0, spin: 0, size, actor, shadow, t: rand(0, 3), flee: 0, flying: false, dest: null, leader };
       if (b.kind === 'chain') leader = bud;
       this.list.push(bud);
     }
@@ -143,18 +144,21 @@ export class Buddies {
         const want = b.flying ? 3.2 : 0;
         b.h += (want - b.h) * (1 - Math.exp(-dt * 3));
       } else {
-        // trot along in little hops
-        if (moving && b.h <= 0 && b.vh <= 0) b.vh = 3.2;
+        // emoji trot along in little hops (models walk instead)
+        if (moving && b.h <= 0 && b.vh <= 0 && !b.actor.isModel) b.vh = 3.2;
         b.vh -= G * dt;
         b.h = Math.max(0, b.h + b.vh * dt);
         if (b.h <= 0 && b.vh < 0) b.vh = 0;
       }
       b.spin = Math.max(0, b.spin - dt * 1.6);
       const gy = lawn.height(b.x, b.y);
-      b.sprite.position.set(b.x, gy + b.h + 0.05, b.y);
-      b.sprite.material.rotation = b.spin > 0 ? (1 - b.spin) * Math.PI * 2 : 0;
-      const flap = b.kind === 'flyer' && b.flying ? 0.6 + 0.4 * Math.abs(Math.sin(b.t * 14)) : 1;
-      b.sprite.scale.set(b.size * flap, b.size, 1);
+      const a = b.actor;
+      a.root.position.set(b.x, gy + b.h + 0.05, b.y);
+      a.setSpin(b.spin > 0 ? 1 - b.spin : 0);
+      if (moving) a.face(b.vx, b.vy);
+      else if (b.kind === 'follow' || b.kind === 'chain') a.face(mower.x - b.x, mower.y - b.y);
+      a.setMotion(Math.hypot(b.vx, b.vy), { air: b.kind === 'flyer' && b.flying });
+      a.update(dt);
       b.shadow.position.set(b.x, gy + 0.04, b.y);
       const ss = Math.max(0.4, 1 - b.h * 0.2);
       b.shadow.scale.set(b.size * 0.7 * ss, 1, b.size * 0.45 * ss);

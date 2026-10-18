@@ -1,16 +1,36 @@
+// The title screen: a little front yard in 3D. The chosen mower cuts stripes
+// back and forth with the puppy trotting behind, the owner watches from the
+// door, and when it's done the grass springs back up and it starts again.
+// The yard is in the world of the next lawn to mow.
 import { MOWER_BY_ID, STICKERS } from '../catalog.js';
-import { drawMower } from '../mower.js';
 import { sfx } from '../audio.js';
 import { say } from '../speech.js';
 import { Button, hitButtons, playTriangle } from '../ui.js';
-import { DPR, drawEmoji, drawStar, drawText, roundRectPath } from '../util.js';
+import { clamp, drawStar, drawText, roundRectPath } from '../util.js';
+import { CUT_RADIUS, CUT, Lawn, MOWER_CELLS, TALL } from '../lawn.js';
+import { levelDef } from '../levels.js';
+import { Mower } from '../mower.js';
+import { THREE, castAll, makeLights, makeSky } from '../world3d/renderer.js';
+import { Ground } from '../world3d/ground.js';
+import { Grass } from '../world3d/grass.js';
+import { Mower3D } from '../world3d/mower3d.js';
+import { Effects3D } from '../world3d/effects3d.js';
+import { Ambient3D } from '../world3d/ambient3d.js';
+import { makeYard } from '../world3d/scenery.js';
+import { makeAnimal } from '../world3d/animals.js';
+import { disposeTree, makeShadow } from '../world3d/sprites.js';
 
 const TITLE = 'Mighty Mower';
 const LETTER_COLORS = ['#ff5252', '#ffab40', '#ffd740', '#69f0ae', '#40c4ff', '#b388ff'];
+const COLS = 12;
+const ROWS = 8;
+const _v = new THREE.Vector3();
+const _chute = new THREE.Vector3();
 
 export class MenuScreen {
   constructor(game) {
     this.g = game;
+    this.uses3D = true;
     this.t = 0;
     this.playBtn = new Button({ color: '#43a047', pulse: true, draw: playTriangle, onTap: () => { sfx.tap(); game.go('street'); } });
     this.garageBtn = new Button({
@@ -24,7 +44,15 @@ export class MenuScreen {
     this.soundBtn = new Button({ icon: '🔊', color: '#90a4ae', onTap: () => this.toggleSound() });
     this.musicBtn = new Button({ icon: '🎵', color: '#90a4ae', onTap: () => this.toggleMusic() });
     this.buttons = [this.playBtn, this.garageBtn, this.bookBtn, this.soundBtn, this.musicBtn];
-    this.grass = document.createElement('canvas');
+
+    this.scene = new THREE.Scene();
+    this.lights = makeLights(this.scene);
+    this.sky = makeSky(this.scene);
+    this.scene.fog = new THREE.Fog('#bfe9ff', 40, 110);
+    this.camera = new THREE.PerspectiveCamera(40, 1, 0.3, 400);
+    this.fx = new Effects3D(this.scene);
+    this.world = null;
+    this.key = null;
   }
 
   toggleSound() {
@@ -40,8 +68,72 @@ export class MenuScreen {
   }
 
   enter() {
+    const { save } = this.g;
+    const key = `${save.lawns}`;
+    if (key !== this.key) this.build();
+    this.key = key;
+    const skin = MOWER_BY_ID[save.mower] || MOWER_BY_ID.red;
+    this.mower.skin = skin;
+    this.mower3d.setSkin(skin);
     this.layout();
-    this.demo = { x: -80, lane: 0, dir: 1 };
+  }
+
+  // The yard for the world of the next lawn.
+  build() {
+    if (this.world) {
+      this.scene.remove(this.world);
+      this.ground.dispose();
+      this.grass.dispose();
+      disposeTree(this.world);
+      this.fx.clear();
+    }
+    const next = levelDef(this.g.save.lawns);
+    const def = { ...next, shape: 'roundrect', long: COLS, short: ROWS, obstacles: 0, ramps: 0, hills: 0, powerups: [], picture: null, event: null };
+    const lawn = (this.lawn = new Lawn(def, false, []));
+    const theme = def.theme;
+    const world = (this.world = new THREE.Group());
+    this.ground = new Ground(lawn);
+    this.grass = new Grass(lawn);
+    const yard = castAll(makeYard(lawn));
+    this.house = yard.userData.house;
+    world.add(this.ground.group, this.grass.mesh, yard);
+    this.ambient = new Ambient3D(world, theme.ambient, lawn);
+    this.scene.add(world);
+
+    const skin = MOWER_BY_ID[this.g.save.mower] || MOWER_BY_ID.red;
+    if (!this.mower3d) {
+      this.mower3d = new Mower3D(skin);
+      this.scene.add(this.mower3d.root, this.mower3d.shadow);
+    }
+    this.mower = new Mower(skin, -1.5, 1.2, MOWER_CELLS);
+    this.mower.speedMul = 0.32;
+    this.mower3d.setLights(theme.dark);
+    this.fx.groundAt = (x, z) => lawn.height(x, z);
+
+    // a puppy trots along behind
+    this.pup = { actor: makeAnimal('🐶', 1.2), x: -4, y: 1.5, vx: 0, vy: 0 };
+    this.pupShadow = makeShadow(0.9, 0.55, 0.7, this.pup.actor.isModel);
+    world.add(this.pup.actor.root, this.pupShadow);
+
+    this.lights.apply(theme.id, { x: COLS / 2, z: ROWS / 2 - 3 }, 22);
+    this.sky.blend(theme.id);
+    this.scene.fog.color.set(this.sky.horizon);
+    this.planRoute();
+    this.regrowT = 0;
+  }
+
+  // Back and forth in stripes, then park by the edge.
+  planRoute() {
+    const lanes = [];
+    for (let y = 0.9; y < ROWS; y += CUT_RADIUS * 1.25) lanes.push(Math.min(y, ROWS - 0.8));
+    this.route = [];
+    lanes.forEach((y, i) => {
+      const a = i % 2 ? COLS + 0.6 : -0.6;
+      const b = i % 2 ? -0.6 : COLS + 0.6;
+      this.route.push({ x: a, y }, { x: b, y });
+    });
+    this.route.push({ x: -2, y: ROWS + 1.5 }, { x: -2.2, y: 0.9 });
+    this.leg = 0;
   }
 
   resize() {
@@ -58,113 +150,142 @@ export class MenuScreen {
     this.bookBtn.set(W / 2 + r * 2.3, cy + r * 0.25, r * 0.62);
     this.soundBtn.set(safe.l + 38, safe.t + 38, 26);
     this.musicBtn.set(safe.l + 100, safe.t + 38, 26);
-    this.groundY = H * 0.72;
-    this.renderGrass();
-  }
-
-  renderGrass() {
-    const { W, H } = this.g;
-    const h = H - this.groundY;
-    const c = this.grass;
-    c.width = Math.round(W * DPR);
-    c.height = Math.round(h * DPR);
-    const g = c.getContext('2d');
-    g.setTransform(DPR, 0, 0, DPR, 0, 0);
-    g.fillStyle = '#3d9a3a';
-    g.fillRect(0, 0, W, h);
-    const colors = ['#2f8a2e', '#47a83f', '#55b84a', '#61c255'];
-    g.lineCap = 'round';
-    g.lineWidth = 3;
-    for (let i = 0; i < W * h * 0.012; i++) {
-      const x = Math.random() * W;
-      const y = Math.random() * h + 8;
-      g.strokeStyle = colors[i % colors.length];
-      g.beginPath();
-      g.moveTo(x, y);
-      g.quadraticCurveTo(x + 2, y - 8, x + (Math.random() - 0.5) * 10, y - 14 - Math.random() * 8);
-      g.stroke();
-    }
+    // fit the lawn and a bit of yard across the screen, house up top
+    const cam = this.camera;
+    cam.aspect = W / H;
+    cam.updateProjectionMatrix();
+    const fovH = 2 * Math.atan(Math.tan((cam.fov * Math.PI) / 360) * cam.aspect);
+    // held upright the lawn can run off the sides; look down more so it fills the screen
+    const tall = cam.aspect < 1;
+    this.camDist = clamp((COLS + (tall ? 1 : 7)) / 2 / Math.tan(fovH / 2), 20, 46);
+    this.pitch = tall ? 0.6 : 0.5;
+    this.lookZ = tall ? -1.5 : ROWS / 2 - 2.2;
   }
 
   down(x, y) {
-    hitButtons(this.buttons, x, y);
+    if (hitButtons(this.buttons, x, y)) return;
+    // tap the puppy or the owner to say hi
+    const pick = (obj, h) => {
+      obj.getWorldPosition(_v);
+      _v.y += h;
+      _v.project(this.camera);
+      const sx = ((_v.x + 1) / 2) * this.g.W;
+      const sy = ((1 - _v.y) / 2) * this.g.H;
+      return Math.hypot(sx - x, sy - y) < 70;
+    };
+    if (pick(this.pup.actor.root, 0.6)) {
+      sfx.bark();
+      this.pup.actor.react('hop');
+      this.pupHop = 1;
+    }
+    const owner = this.house.userData.owner;
+    if (owner && pick(owner.root, 0.8)) {
+      sfx.surprise();
+      owner.react('happy');
+      this.ownerHop = 1;
+      say(`Hi! I'm ${this.lawn.def.owner.name}!`, { force: true });
+    }
   }
 
   update(dt) {
     this.t += dt;
-    const { W, H } = this.g;
-    const d = this.demo;
-    const spd = Math.max(120, W * 0.18);
-    d.x += d.dir * spd * dt;
-    if ((d.dir > 0 && d.x > W + 80) || (d.dir < 0 && d.x < -80)) {
-      d.lane = (d.lane + 1) % 3;
-      d.dir *= -1;
-      if (d.lane === 0) {
-        d.x = -80;
-        d.dir = 1;
-        this.renderGrass();
+    const t = this.t;
+    const { lawn, mower } = this;
+
+    // drive the route; cut as we go
+    const wp = this.route[this.leg];
+    if (wp) {
+      const px = mower.x;
+      const py = mower.y;
+      mower.update(dt, wp, { x: -3, y: -1, w: COLS + 6, h: ROWS + 4 }, []);
+      if (Math.hypot(wp.x - mower.x, wp.y - mower.y) < 0.7) this.leg++;
+      const cut = lawn.mowSegment(px, py, mower.x, mower.y, CUT_RADIUS);
+      if (cut.length) {
+        for (const i of cut) {
+          this.grass.cut(i);
+          this.ground.setTall(i, false);
+        }
+        const p = this.mower3d.chutePos(_chute);
+        this.fx.clippings(p.x, p.y, p.z, lawn.theme.blades, 2, mower.heading + Math.PI * 0.6);
+      }
+    } else {
+      // parked: the grass springs back up, then off we go again
+      mower.update(dt, null, { x: -3, y: -1, w: COLS + 6, h: ROWS + 4 }, []);
+      this.regrowT += dt;
+      if (this.regrowT > 1 && !this.regrown) {
+        this.regrown = true;
+        for (let i = 0; i < lawn.grid.length; i++)
+          if (lawn.grid[i] === CUT) {
+            lawn.grid[i] = TALL;
+            this.ground.setTall(i, true);
+          }
+        lawn.cutCount = 0;
+        this.grass.regrowAll();
+        for (let k = 0; k < 6; k++) this.fx.sparkle(Math.random() * COLS, 0.4, Math.random() * ROWS, '#fff59d', 1.6);
+      }
+      if (this.regrowT > 3) {
+        this.regrowT = 0;
+        this.regrown = false;
+        this.planRoute();
       }
     }
-    this.laneH = (H - this.groundY) / 3;
+    mower.updateHeight(dt, 0);
+
+    // the puppy follows a little way behind
+    const pup = this.pup;
+    const tx = mower.x - Math.cos(mower.heading) * 2.6;
+    const ty = mower.y - Math.sin(mower.heading) * 2.6;
+    const ex = tx - pup.x;
+    const ey = ty - pup.y;
+    const d = Math.hypot(ex, ey);
+    const want = d > 0.5 ? Math.min(6, (d - 0.5) * 3) : 0;
+    const k = 1 - Math.exp(-dt * 6);
+    pup.vx += ((d > 0.01 ? ex / d : 0) * want - pup.vx) * k;
+    pup.vy += ((d > 0.01 ? ey / d : 0) * want - pup.vy) * k;
+    pup.x += pup.vx * dt;
+    pup.y += pup.vy * dt;
+    const sp = Math.hypot(pup.vx, pup.vy);
+    this.pupHop = Math.max(0, (this.pupHop || 0) - dt * 2.5);
+    const ph = Math.sin(this.pupHop * Math.PI) * 1.2;
+    pup.actor.root.position.set(pup.x, ph + (pup.actor.isModel ? 0 : Math.abs(Math.sin(t * 9)) * 0.15 * Math.min(1, sp)), pup.y);
+    if (sp > 0.3) pup.actor.face(pup.vx, pup.vy);
+    else pup.actor.face(mower.x - pup.x, mower.y - pup.y);
+    pup.actor.setMotion(sp);
+    pup.actor.update(dt);
+    this.pupShadow.position.set(pup.x, 0.04, pup.y);
+
+    const owner = this.house.userData.owner;
+    if (owner) {
+      this.ownerHop = Math.max(0, (this.ownerHop || 0) - dt * 2);
+      owner.root.position.y = Math.sin(this.ownerHop * Math.PI) * 0.8;
+      owner.face(mower.x - this.house.position.x - owner.root.position.x, mower.y - this.house.position.z - owner.root.position.z);
+      owner.update(dt);
+    }
+
+    this.mower3d.update(mower, () => 0, t);
+    this.grass.update(dt, t);
+    this.ground.update();
+    this.ambient.update(dt, t);
+    this.fx.update(dt);
+    this.sky.update(dt);
+
+    // a slow drift so the scene feels alive
+    const cam = this.camera;
+    const a = Math.sin(t * 0.12) * 0.12;
+    const pitch = this.pitch;
+    const tx2 = COLS / 2 + Math.sin(t * 0.17) * 0.6;
+    const tz = this.lookZ;
+    cam.position.set(tx2 + Math.sin(a) * this.camDist * Math.cos(pitch), Math.sin(pitch) * this.camDist, tz + Math.cos(a) * this.camDist * Math.cos(pitch));
+    cam.lookAt(tx2, 0, tz);
+  }
+
+  render3d(renderer) {
+    renderer.render(this.scene, this.camera);
   }
 
   draw(ctx) {
     const { W, H, save } = this.g;
     const t = this.t;
-    const sky = ctx.createLinearGradient(0, 0, 0, this.groundY);
-    sky.addColorStop(0, '#6ec6ff');
-    sky.addColorStop(1, '#d6f1ff');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, W, this.groundY);
-
-    // sun with turning rays
-    const sx = W * 0.85;
-    const sy = H * 0.16;
-    const sr = Math.min(W, H) * 0.08;
-    ctx.save();
-    ctx.translate(sx, sy);
-    ctx.rotate(t * 0.3);
-    ctx.fillStyle = 'rgba(255,235,59,0.5)';
-    for (let i = 0; i < 10; i++) {
-      ctx.rotate((Math.PI * 2) / 10);
-      ctx.beginPath();
-      ctx.moveTo(sr * 0.9, -sr * 0.2);
-      ctx.lineTo(sr * 1.7, 0);
-      ctx.lineTo(sr * 0.9, sr * 0.2);
-      ctx.fill();
-    }
-    ctx.restore();
-    drawEmoji(ctx, '🌞', sx, sy, sr * 2);
-
-    for (let i = 0; i < 4; i++) {
-      const cx = ((t * (14 + i * 6) + i * W * 0.3) % (W + 240)) - 120;
-      drawEmoji(ctx, '☁️', cx, H * (0.1 + i * 0.07), 60 + i * 14);
-    }
-
-    // rolling hills
-    ctx.fillStyle = '#9ccc65';
-    ctx.beginPath();
-    ctx.moveTo(0, this.groundY);
-    for (let x = 0; x <= W; x += 20) ctx.lineTo(x, this.groundY - 30 - Math.sin(x / 140) * 22);
-    ctx.lineTo(W, this.groundY);
-    ctx.fill();
-    drawEmoji(ctx, '🏡', W * 0.12, this.groundY - 50, 80);
-    drawEmoji(ctx, '🌳', W * 0.25, this.groundY - 50, 70);
-    drawEmoji(ctx, '🌳', W * 0.7, this.groundY - 46, 60);
-
-    // tall grass strip with a demo mower cutting stripes
-    ctx.drawImage(this.grass, 0, this.groundY, W, H - this.groundY);
-    const d = this.demo;
-    const lh = this.laneH;
-    for (let l = 0; l <= d.lane; l++) {
-      const y = this.groundY + l * lh;
-      ctx.fillStyle = l % 2 ? '#8fd870' : '#a5e887';
-      if (l < d.lane) ctx.fillRect(0, y, W, lh + 1);
-      else if (d.dir > 0) ctx.fillRect(0, y, Math.max(0, d.x), lh + 1);
-      else ctx.fillRect(d.x, y, W - d.x, lh + 1);
-    }
-    const skin = MOWER_BY_ID[save.mower] || MOWER_BY_ID.red;
-    drawMower(ctx, skin, d.x, this.groundY + d.lane * lh + lh / 2, Math.min(lh * 1.3, 90), d.dir > 0 ? 0 : Math.PI, t, { moving: 0.8 });
 
     // bouncy title
     const ts = Math.min(W / 9, H / 7.5, 84);

@@ -2,11 +2,13 @@
 // next one waiting with tall grass. The mower drives up the road, the owner
 // asks for help, and the camera dives into the lawn. No taps needed, but he
 // can swipe back along the street to see every picture he's uncovered.
-import { THREE, LIGHTS, makeLights } from '../world3d/renderer.js';
+import { THREE, LIGHTS, castAll, makeLights, makeSky, toy } from '../world3d/renderer.js';
 import { Mower3D } from '../world3d/mower3d.js';
 import { Effects3D } from '../world3d/effects3d.js';
 import { disposeTree, makeEmoji } from '../world3d/sprites.js';
-import { makeHouse, makePine, makeTree } from '../world3d/props.js';
+import { makeHouse } from '../world3d/houses.js';
+import { makeShrub, makeYardTree } from '../world3d/scenery.js';
+import { mulberry32 } from '../terrain.js';
 import { paintLawn } from '../world3d/ground.js';
 import { fitPictureBox, shapePath } from '../lawn.js';
 import { levelDef } from '../levels.js';
@@ -82,9 +84,11 @@ export class StreetScreen {
     this.uses3D = true;
     this.t = 0;
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#bfe9ff');
     this.lights = makeLights(this.scene);
-    this.lights.apply('day');
+    this.lights.apply('day', { x: 0, z: 0 }, 22);
+    this.sky = makeSky(this.scene);
+    this.sky.blend('day');
+    this.scene.fog = new THREE.Fog('#bfe9ff', 70, 190);
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.5, 400);
     this.fx = new Effects3D(this.scene);
     this.lots = new Map();
@@ -99,15 +103,17 @@ export class StreetScreen {
     this.walk.position.set(150, 0.03, ROAD_Z - 2.4);
     this.far = new THREE.Mesh(new THREE.PlaneGeometry(1200, 400).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: '#8fd97a' }));
     this.far.position.set(150, -0.05, 0);
+    // curbs along both sides of the road
+    const curbMat = toy('#cfcfcf', { rough: 0.9 });
+    for (const z of [ROAD_Z - 1.85, ROAD_Z + 1.85]) {
+      const curb = new THREE.Mesh(new THREE.BoxGeometry(400, 0.12, 0.18), curbMat);
+      curb.position.set(150, 0.06, z);
+      curb.receiveShadow = true;
+      this.scene.add(curb);
+    }
+    for (const m of [this.road, this.walk, this.far]) m.receiveShadow = true;
     this.scene.add(this.road, this.walk, this.far);
 
-    // stars over the night and moon houses
-    const pts = [];
-    for (let i = 0; i < 400; i++) pts.push(rand(-100, 400), rand(8, 60), rand(-80, -20));
-    const sg = new THREE.BufferGeometry();
-    sg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-    this.stars = new THREE.Points(sg, new THREE.PointsMaterial({ color: '#ffffff', size: 0.5, transparent: true, opacity: 0 }));
-    this.scene.add(this.stars);
 
     this.mower = new Mower(MOWER_BY_ID.red, 0, ROAD_Z, 3);
     this.mower3d = new Mower3D(MOWER_BY_ID.red);
@@ -128,7 +134,7 @@ export class StreetScreen {
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(LOT, 26).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: def.theme.bg[0] }));
     ground.position.set(0, -0.01, -4);
     g.add(ground);
-    const house = makeHouse(def.theme.id, def.owner);
+    const house = makeHouse(def.theme.id, def.owner, i);
     house.position.set(0, 0, -6.8);
     g.add(house);
     const { tex, w, h } = lawnTexture(def, finished);
@@ -136,19 +142,26 @@ export class StreetScreen {
     const lawn = new THREE.Mesh(new THREE.PlaneGeometry(w * s, h * s).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ map: tex, transparent: true }));
     lawn.position.set(0, 0.015, 1.2);
     g.add(lawn);
-    // something between the houses
-    const tree = def.theme.id === 'night' ? makePine(3) : def.theme.id === 'day' || def.theme.id === 'sunset' ? makeTree(2.6) : null;
-    if (tree) {
-      tree.position.set(LOT / 2, 0, -3);
-      g.add(tree);
-    } else {
-      const d = makeEmoji(def.theme.decor[i % def.theme.decor.length], 2.4);
-      d.position.set(LOT / 2, 0, -3);
-      g.add(d);
-    }
-    const deco = makeEmoji(def.theme.decor[(i + 3) % def.theme.decor.length], 1.6);
-    deco.position.set(-LOT / 2 + 1.5, 0, -1);
-    g.add(deco);
+    // a tree between the houses and a bush by the road
+    const rng = mulberry32(i * 7919 + 3);
+    const tree = makeYardTree(def.theme.id, 2.6 + rng() * 0.6, rng);
+    tree.position.set(LOT / 2, 0, -3);
+    g.add(tree);
+    // a mailbox by the sidewalk
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.0, 0.1), toy('#8d6e63', { rough: 0.8 }));
+    post.position.set(2.6, 0.5, ROAD_Z - 3.3);
+    const box = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.5, 16, 1, false, 0, Math.PI).rotateZ(Math.PI / 2).rotateY(Math.PI / 2), toy(['#1565c0', '#c62828', '#2e7d32', '#37474f'][i % 4], { rough: 0.4 }));
+    box.position.set(2.6, 1.0, ROAD_Z - 3.3);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.04, 0.5), box.material);
+    base.position.set(2.6, 1.0, ROAD_Z - 3.3);
+    const flag = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.22, 0.08), toy('#ff5252', { rough: 0.5 }));
+    flag.position.set(2.82, 1.15, ROAD_Z - 3.4);
+    g.add(post, box, base, flag);
+    const bush = makeShrub(def.theme.id, 0.9, rng);
+    bush.position.set(-LOT / 2 + 1.5, 0, -1);
+    g.add(bush);
+    castAll(g);
+    ground.castShadow = lawn.castShadow = false;
     this.scene.add(g);
     return { i, def, group: g, finished, owner: house.userData.owner, hop: 0, x };
   }
@@ -360,8 +373,12 @@ export class StreetScreen {
       const o = lot.owner;
       if (!o) continue;
       const waiting = lot.i === this.next;
-      o.position.y = lot.hop > 0 ? Math.abs(Math.sin(this.t * 8)) * 1 : waiting ? Math.abs(Math.sin(this.t * 3)) * 0.25 : 0;
-      o.material.rotation = waiting || lot.hop > 0 ? Math.sin(this.t * 6) * 0.15 : 0;
+      o.root.position.y = lot.hop > 0 ? Math.abs(Math.sin(this.t * 8)) * 1 : waiting && !o.isModel ? Math.abs(Math.sin(this.t * 3)) * 0.25 : 0;
+      o.setTilt(!o.isModel && (waiting || lot.hop > 0) ? Math.sin(this.t * 6) * 0.15 : 0);
+      // the one waiting for a mow watches the mower coming
+      if (waiting) o.face(m.x - lot.x - o.root.position.x, ROAD_Z - o.root.position.z + 6.8);
+      else o.face(0, 1);
+      o.update(dt);
       if (lot.hop > 0 && Math.random() < dt * 6) this.fx.sparkle(lot.x - 1 + rand(-1, 1), 2.5, -4, '#fff59d', 2);
     }
     this.arrow.position.set(nextX, 0.5 + Math.abs(Math.sin(this.t * 4)) * 0.7, 2.6);
@@ -370,16 +387,17 @@ export class StreetScreen {
     const look = this.lots.get(clamp(Math.round(this.camX / LOT), this.first, this.next));
     const L = LIGHTS[look?.def.theme.id] || LIGHTS.day;
     const k = 1 - Math.exp(-dt * 3);
-    this.scene.background.lerp(_c.set(L.sky), k);
+    this.sky.blend(look?.def.theme.id || 'day', k);
+    this.scene.fog.color.lerp(_c.set(L.sky), k);
+    this.sky.update(dt);
     this.lights.hemi.color.lerp(_c.set(L.hemiSky), k);
     this.lights.hemi.groundColor.lerp(_c.set(L.hemiGround), k);
     this.lights.hemi.intensity = lerp(this.lights.hemi.intensity, L.hemi, k);
     this.lights.sun.intensity = lerp(this.lights.sun.intensity, L.sun, k);
-    this.lights.sun.position.set(this.camX - 8, 20, 10);
-    this.lights.sun.target.position.set(this.camX, 0, 0);
+    this.scene.environmentIntensity = lerp(this.scene.environmentIntensity, L.env, k);
+    this.lights.aim(this.camX, -2);
     this.far.material.color.lerp(_c.set(look?.def.theme.bg[1] || '#8fd97a'), k);
     const dark = look && (look.def.theme.id === 'night' || look.def.theme.id === 'moon');
-    this.stars.material.opacity = lerp(this.stars.material.opacity, dark ? 0.9 : 0, k);
     this.mower3d.setLights(!!dark);
 
     this.fx.update(dt);

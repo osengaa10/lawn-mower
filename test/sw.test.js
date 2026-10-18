@@ -16,7 +16,7 @@ function listFiles(dir) {
 }
 
 test('every game file is cached for offline play', () => {
-  const needed = ['index.html', 'manifest.webmanifest', ...listFiles('src'), ...listFiles('vendor'), ...listFiles('icons')];
+  const needed = ['index.html', 'manifest.webmanifest', ...listFiles('src'), ...listFiles('vendor'), ...listFiles('icons'), ...listFiles('assets')];
   const missing = needed.filter((f) => !cached.has(f));
   assert.deepEqual(missing, [], `add these to FILES in sw.js (and bump CACHE): ${missing.join(', ')}`);
 });

@@ -1,5 +1,5 @@
 import { MOWERS } from '../catalog.js';
-import { drawMower } from '../mower.js';
+import { drawMower3D } from '../world3d/thumbs.js';
 import { sfx } from '../audio.js';
 import { say } from '../speech.js';
 import { Particles } from '../particles.js';
@@ -106,11 +106,11 @@ export class GarageScreen {
       if (unlocked) {
         const spin = this.spin[c.m.id] || 0;
         const heading = -Math.PI / 4 + (selected ? Math.sin(t * 1.5) * 0.25 : 0) + spin * Math.PI * 4;
-        drawMower(ctx, c.m, cx, cy, c.s * 0.52, heading, t, { moving: selected ? 0.4 : 0 });
+        drawMower3D(ctx, c.m, cx, cy, c.s * 0.52, heading, t, { moving: selected ? 0.4 : 0 });
         if (selected) drawEmoji(ctx, '✅', x + c.s * 0.84, c.y + c.s * 0.16, c.s * 0.2);
       } else {
         ctx.globalAlpha = 0.6;
-        drawMower(ctx, LOCKED, cx, cy, c.s * 0.5, -Math.PI / 4, t, { bob: false });
+        drawMower3D(ctx, LOCKED, cx, cy, c.s * 0.5, -Math.PI / 4, t, { bob: false });
         ctx.globalAlpha = 1;
         drawEmoji(ctx, '🔒', x + c.s * 0.82, c.y + c.s * 0.18, c.s * 0.2);
         drawStar(ctx, cx - c.s * 0.14, c.y + c.s * 0.86, c.s * 0.08, '#ffd54f', '#f9a825');

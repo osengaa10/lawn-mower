@@ -1,21 +1,24 @@
 import { CUT_RADIUS, Lawn, MOWER_CELLS } from '../lawn.js';
 import { levelDef } from '../levels.js';
 import { Mower } from '../mower.js';
-import { Ambient, Particles } from '../particles.js';
+import { Particles } from '../particles.js';
 import { MOWER_BY_ID, STICKERS } from '../catalog.js';
 import { PICTURES } from '../pictures.js';
 import { sfx, setEngine, startEngine, stopEngine } from '../audio.js';
 import { say } from '../speech.js';
 import { Button, hitButtons } from '../ui.js';
 import { Celebration } from './celebration.js';
-import { THREE, isDarkTheme, makeLights } from '../world3d/renderer.js';
+import { THREE, castAll, isDarkTheme, makeLights, makeSky } from '../world3d/renderer.js';
 import { CameraRig } from '../world3d/camera.js';
-import { Ground } from '../world3d/ground.js';
+import { Ground, YARD } from '../world3d/ground.js';
 import { Grass } from '../world3d/grass.js';
 import { Mower3D } from '../world3d/mower3d.js';
 import { Effects3D } from '../world3d/effects3d.js';
+import { Ambient3D } from '../world3d/ambient3d.js';
+import { makeAnimal } from '../world3d/animals.js';
 import { disposeTree, makeEmoji, makeShadow } from '../world3d/sprites.js';
-import { makeHintRing, makeObstacle, makeRamp, makeYard } from '../world3d/props.js';
+import { makeHintRing, makeRamp } from '../world3d/props.js';
+import { makeObstacle, makeYard } from '../world3d/scenery.js';
 import { hillHeight } from '../terrain.js';
 import { Buddies } from '../buddies.js';
 import { POWER, PowerUps } from '../powerups.js';
@@ -27,6 +30,7 @@ import {
 const ALMOST = ['Almost done!', 'Just a little more!', 'You can do it!'];
 const TEASE = ["What's the picture?", 'I see a picture!', 'What could it be?'];
 const REVEAL_TIME = 3;
+const _chute = new THREE.Vector3();
 
 export class PlayScreen {
   constructor(game) {
@@ -51,6 +55,7 @@ export class PlayScreen {
     // the 3D scene; everything for one lawn lives in this.world
     this.scene = new THREE.Scene();
     this.lights = makeLights(this.scene);
+    this.sky = makeSky(this.scene);
     this.rig = new CameraRig();
     this.fx = new Effects3D(this.scene);
     this.mower3d = null;
@@ -159,16 +164,16 @@ export class PlayScreen {
     this.ground = new Ground(lawn);
     this.grass = new Grass(lawn);
     world.add(this.ground.group, this.grass.mesh);
-    const yard = makeYard(lawn);
+    const yard = castAll(makeYard(lawn));
     world.add(yard);
     this.house = yard.userData.house;
     this.obstacleObjs = lawn.obstacles.map((o) => {
-      const obj = makeObstacle(o, theme);
+      const obj = castAll(makeObstacle(o, theme));
       obj.position.set(o.gx, hillHeight(lawn.hills, o.gx, o.gy), o.gy);
       world.add(obj);
       return { o, obj };
     });
-    for (const r of lawn.ramps) world.add(makeRamp(r, lawn.hills));
+    for (const r of lawn.ramps) world.add(castAll(makeRamp(r, lawn.hills)));
     this.plantSprites = [];
     for (const p of lawn.plants) this.addPlantSprite(p);
 
@@ -186,7 +191,8 @@ export class PlayScreen {
     this.mower3d.setLights(isDarkTheme(theme.id));
     this.fx.groundAt = (x, z) => lawn.height(x, z);
 
-    this.lights.apply(theme.id, { x: lawn.cols / 2, z: lawn.rows / 2 });
+    this.lights.apply(theme.id, { x: lawn.cols / 2, z: lawn.rows / 2 }, Math.max(lawn.cols, lawn.rows) / 2 + YARD);
+    this.sky.blend(theme.id);
     this.scene.fog = new THREE.Fog(theme.bg[1], 40, 120);
 
     this.state = 'mow';
@@ -209,7 +215,7 @@ export class PlayScreen {
     this.powerups = new PowerUps(this);
     this.buddies = new Buddies(this);
     this.events = new Events(this);
-    this.ambient = theme.ambient === 'twinkle' ? null : new Ambient(theme.ambient, g.W, g.H);
+    this.ambient = new Ambient3D(world, theme.ambient, lawn);
     this.layout();
     this.rig.snap(this.focus());
   }
@@ -233,7 +239,6 @@ export class PlayScreen {
       this.scene.fog.near = far * 0.5;
       this.scene.fog.far = far * 1.6;
     }
-    this.ambient?.resize(g.W, g.H);
     const s = g.safe;
     const hy = s.t + 38;
     this.homeBtn.set(s.l + 42, hy, 28);
@@ -284,7 +289,6 @@ export class PlayScreen {
     this.t += dt;
     this.fade = Math.max(0, (this.fade || 0) - dt * 2.5);
     this.hornT = Math.max(0, this.hornT - dt);
-    this.ambient?.update(dt);
     this.particles.update(dt);
     this.starBump = Math.max(0, this.starBump - dt * 3);
     this.bookBump = Math.max(0, this.bookBump - dt * 3);
@@ -477,17 +481,10 @@ export class PlayScreen {
     const { lawn, mower } = this;
     if (lawn.cutCount > 12) this.hasMoved = true;
     sfx.snip(lawn.progress);
+    // clippings fly out of the chute on the mower's side
     const n = Math.min(5, cells.length);
-    const back = mower.heading + Math.PI;
-    const s = mower.size * mower.scale;
-    for (let k = 0; k < n; k++) {
-      this.fx.clippings(
-        mower.x + Math.cos(back) * s * 0.3 + rand(-1, 1) * s * 0.25,
-        mower.h,
-        mower.y + Math.sin(back) * s * 0.3 + rand(-1, 1) * s * 0.25,
-        lawn.theme.blades, 2,
-      );
-    }
+    const p = this.mower3d.chutePos(_chute);
+    for (let k = 0; k < n; k++) this.fx.clippings(p.x, p.y, p.z, lawn.theme.blades, 2, mower.heading + Math.PI * 0.6);
     this.applyCut(cells);
   }
 
@@ -570,10 +567,11 @@ export class PlayScreen {
     const d = Math.hypot(dx, dy) || 1;
     dx /= d;
     dy /= d;
-    const sprite = makeEmoji(s.e, s.rare ? 2.6 : 2);
+    const actor = makeAnimal(s.e, s.rare ? 2.6 : 2);
+    actor.faceNow(dx, dy);
     const shadow = makeShadow(1.2, 0.7, 0.7);
-    this.world.add(sprite, shadow);
-    this.critters.push({ s, x: c.x, y: c.y, t: 0, dx, dy, sprite, shadow, rare: s.rare });
+    this.world.add(actor.root, shadow);
+    this.critters.push({ s, x: c.x, y: c.y, t: 0, dx, dy, actor, shadow, rare: s.rare });
     if (s.move === 'plant') this.addPlant(s.e, c.x, c.y);
     const p = this.rig.toScreen(c.x, h + 1, c.y);
     this.actors.push({ type: 'book', e: s.e, sx: p.x, sy: p.y, x: p.x, y: p.y, t: -0.7, first });
@@ -582,6 +580,7 @@ export class PlayScreen {
   updateWorld(dt) {
     const { lawn, mower, t } = this;
     this.grass.update(dt, t);
+    this.ambient.update(dt, t);
     this.ground.update();
     this.fx.update(dt);
     this.buddies.update(dt);
@@ -596,7 +595,12 @@ export class PlayScreen {
       if (wob?.isSprite) wob.material.rotation = w;
       else if (wob) wob.rotation.z = w;
       const duck = obj.userData.duck;
-      if (duck) duck.position.set(Math.sin(t * 0.8) * o.gr * 0.4, 0.05 + Math.sin(t * 3) * 0.05, Math.cos(t * 0.6) * o.gr * 0.3);
+      if (duck) {
+        duck.root.position.set(Math.sin(t * 0.8) * o.gr * 0.4, (duck.isModel ? -0.1 : 0.05) + Math.sin(t * 3) * 0.05, Math.cos(t * 0.6) * o.gr * 0.3);
+        duck.face(Math.cos(t * 0.8), -Math.sin(t * 0.6) * 0.6);
+        duck.update(dt);
+      }
+      obj.userData.actor?.update(dt);
       if (obj.userData.zzz) obj.userData.zzz.position.y = o.gr * 1.6 + Math.sin(t * 2) * 0.15;
     }
 
@@ -612,8 +616,11 @@ export class PlayScreen {
     const owner = this.house?.userData.owner;
     if (owner) {
       const party = this.state === 'reveal' || this.state === 'celebrate';
-      owner.position.y = party ? Math.abs(Math.sin(t * 7)) * 0.8 : Math.abs(Math.sin(t * 2)) * 0.1;
-      owner.material.rotation = party ? Math.sin(t * 7) * 0.2 : 0;
+      owner.root.position.y = party ? Math.abs(Math.sin(t * 7)) * 0.8 : owner.isModel ? 0 : Math.abs(Math.sin(t * 2)) * 0.1;
+      owner.setTilt(party && !owner.isModel ? Math.sin(t * 7) * 0.2 : 0);
+      // watch the mower
+      owner.face(mower.x - this.house.position.x - owner.root.position.x, mower.y - this.house.position.z - owner.root.position.z);
+      owner.update(dt);
     }
 
     const showHint = this.hint >= 0;
@@ -681,20 +688,23 @@ export class PlayScreen {
       if (m === 'fly') h += tt * 2 + Math.sin(tt * 8) * 0.3;
       if (m === 'crawl') rot = Math.sin(tt * 10) * 0.12;
       const gy = lawn.height(c.x, c.y);
-      const base = (c.rare ? 2.6 : 2) * easeOutBack(k);
       let alpha = c.t > 2.8 ? clamp(1 - (c.t - 2.8) / 0.6, 0, 1) : 1;
       if (m === 'plant') alpha = 1 - k * 0.6;
-      c.sprite.position.set(c.x, gy + h, c.y);
-      c.sprite.scale.set(base, base, 1);
-      c.sprite.material.rotation = rot;
-      c.sprite.material.opacity = alpha;
+      const a = c.actor;
+      if (a.isModel && m !== 'fly') h = 0.6 * easeOutBack(k) * (tt > 0 ? 0 : 1) + (m === 'hop' ? Math.abs(Math.sin(tt * 7)) * 0.5 : 0);
+      a.root.position.set(c.x, gy + h, c.y);
+      a.root.scale.setScalar(Math.max(0.001, easeOutBack(k)));
+      a.setTilt(a.isModel ? 0 : rot);
+      a.setOpacity(alpha);
+      if (tt > 0) a.setMotion(m === 'hop' ? 3.5 : m === 'fly' ? 2 : m === 'crawl' ? 1.2 : 0, { air: m === 'fly' });
+      a.update(dt);
       c.shadow.position.set(c.x, gy + 0.04, c.y);
       c.shadow.material.opacity = 0.7 * alpha * (m === 'plant' ? 0 : 1);
       if (c.rare && Math.random() < dt * 20) this.fx.sparkle(c.x + rand(-1, 1), gy + h + rand(0, 2), c.y + rand(-1, 1), pick(['#fff59d', '#ffffff', '#f8bbd0']), 1.6);
       if (c.t > (m === 'plant' ? 0.5 : 3.4)) {
         c.done = true;
-        this.world.remove(c.sprite, c.shadow);
-        c.sprite.material.dispose();
+        this.world.remove(c.actor.root, c.shadow);
+        c.actor.dispose();
         c.shadow.material.dispose();
       }
     }
@@ -719,7 +729,6 @@ export class PlayScreen {
 
   draw(ctx) {
     const { g, mower, t } = this;
-    this.ambient?.draw(ctx);
 
     // first-ever lawn: show how to play
     if (!this.hasMoved && this.state === 'mow' && g.save.lawns === 0) {
