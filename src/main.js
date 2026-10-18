@@ -8,6 +8,8 @@ import { MenuScreen } from './screens/menu.js';
 import { PlayScreen } from './screens/play.js';
 import { GarageScreen } from './screens/garage.js';
 import { StickerScreen } from './screens/stickers.js';
+import { StreetScreen } from './screens/street.js';
+import { getRenderer, resizeRenderer, showWorld } from './world3d/renderer.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -31,6 +33,7 @@ const game = {
     this.screen?.leave?.();
     this.screen = this.screens[name];
     this.screen.enter?.();
+    showWorld(!!this.screen.uses3D);
   },
   setMuted(m) {
     this.save.muted = m;
@@ -60,6 +63,7 @@ function resize() {
   game.H = window.innerHeight;
   canvas.width = Math.round(game.W * DPR);
   canvas.height = Math.round(game.H * DPR);
+  resizeRenderer(game.W, game.H);
   readSafe();
   game.screen?.resize?.();
 }
@@ -102,6 +106,7 @@ game.screens = {
   play: new PlayScreen(game),
   garage: new GarageScreen(game),
   stickers: new StickerScreen(game),
+  street: new StreetScreen(game),
 };
 game.go('menu');
 startMusic();
@@ -112,15 +117,39 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
-// handy for testing in the browser console
+// handy for testing in the browser console, e.g. __game.debug.goto(4)
 window.__game = game;
+game.debug = {
+  // jump to lawn n (fresh)
+  goto(n) {
+    game.save.lawns = n;
+    game.save.current = null;
+    game.screens.play.lawn = null;
+    game.go('play');
+  },
+  power(kind = 'giant') {
+    game.screens.play.powerups?.start(kind);
+  },
+  event(kind) {
+    const play = game.screens.play;
+    play.events?.start(kind || play.lawn.def.event || 'balloon');
+  },
+  finish() {
+    game.screens.play.startFinish();
+  },
+  street() {
+    game.go('street');
+  },
+};
 
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   game.screen.update(dt);
+  if (game.screen.uses3D) game.screen.render3d(getRenderer());
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, game.W, game.H);
   game.screen.draw(ctx);
   requestAnimationFrame(frame);
 }

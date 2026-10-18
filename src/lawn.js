@@ -1,25 +1,19 @@
-import { DPR, drawEmoji, pick, shuffle } from './util.js';
+import { pick, shuffle } from './util.js';
 import { STICKER_BY_ID } from './catalog.js';
+import { PICTURES } from './pictures.js';
+import { RAMP, eventTrigger, groundHeight, makeHills, mulberry32, rampLocal } from './terrain.js';
 
 export const OUT = 0;
 export const TALL = 1;
 export const CUT = 2;
 export const BLOCK = 3;
 
-const CELLS_PER_MOWER = 3;
-
-function mulberry32(a) {
-  return function () {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+// The mower is this many grid cells long. Everything on the lawn is measured in cells.
+export const MOWER_CELLS = 3;
+export const CUT_RADIUS = 1.75;
 
 // Lawn outline in grid units (0..cols, 0..rows).
-function shapePath(shape, cols, rows) {
+export function shapePath(shape, cols, rows) {
   const p = new Path2D();
   const cx = cols / 2;
   const cy = rows / 2;
@@ -101,60 +95,69 @@ function roundRect(p, x, y, w, h, r) {
   p.closePath();
 }
 
-function scaledPath(path, scale, ox, oy) {
-  const out = new Path2D();
-  out.addPath(path, new DOMMatrix([scale, 0, 0, scale, ox, oy]));
-  return out;
-}
+let probeCtx = null;
+const probe = () => (probeCtx ||= document.createElement('canvas').getContext('2d'));
 
-// Grid cell size that gives the mower a comfy, finger-sized look on this screen.
-export function mowerCell(W, H) {
-  return Math.max(110, Math.min(W, H) * 0.19) / CELLS_PER_MOWER;
+// The biggest box with the picture's proportions that fits well inside the lawn.
+export function fitPictureBox(path, cols, rows, aspect) {
+  const g = probe();
+  const inside = (x, y) => g.isPointInPath(path, x, y);
+  let best = null;
+  for (const fy of [0.5, 0.42, 0.58]) {
+    const cx = cols / 2;
+    const cy = rows * fy;
+    for (let h = Math.min(rows, cols / aspect) * 0.84; h > 1.5; h *= 0.94) {
+      const w = h * aspect;
+      const x0 = cx - w / 2 - 0.4;
+      const y0 = cy - h / 2 - 0.4;
+      const x1 = cx + w / 2 + 0.4;
+      const y1 = cy + h / 2 + 0.4;
+      const pts = [];
+      for (let k = 0; k <= 4; k++) {
+        const f = k / 4;
+        pts.push([x0 + (x1 - x0) * f, y0], [x0 + (x1 - x0) * f, y1], [x0, y0 + (y1 - y0) * f], [x1, y0 + (y1 - y0) * f]);
+      }
+      if (pts.every(([x, y]) => inside(x, y))) {
+        if (!best || h > best.h) best = { x: cx - w / 2, y: cy - h / 2, w, h };
+        break;
+      }
+    }
+  }
+  return best || { x: cols * 0.3, y: rows * 0.3, w: cols * 0.4, h: rows * 0.4 };
 }
 
 export class Lawn {
-  constructor(def, availW, availH, cellPx, surpriseKinds) {
+  // portrait: lay the lawn out tall instead of wide, to suit a phone held upright
+  constructor(def, portrait, surpriseKinds) {
     this.def = def;
     this.theme = def.theme;
     this.seed = Math.floor(Math.random() * 1e9);
     const rng = mulberry32(this.seed);
-
-    // Size the grid as a fraction of what fits on screen at full mower size,
-    // so fill = 1 is a lawn that covers the whole play area.
-    const fullCols = Math.max(CELLS_PER_MOWER * 2, Math.floor(availW / cellPx));
-    const fullRows = Math.max(CELLS_PER_MOWER * 2, Math.floor(availH / cellPx));
-    const shaped = def.shape !== 'rect' && def.shape !== 'roundrect';
-    // round/pointy shapes only fill part of their box, so give them a bigger box
-    const fill = shaped ? Math.max(def.fill, 0.92) : def.fill;
-    let cols = Math.max(CELLS_PER_MOWER * 2, Math.round(fullCols * fill));
-    let rows = Math.max(CELLS_PER_MOWER * 2, Math.round(fullRows * fill));
-    if (shaped) {
-      // ...but don't stretch them so far they look squashed
-      cols = Math.min(cols, Math.round(rows * 1.6));
-      rows = Math.min(rows, Math.round(cols * 1.6));
-    }
+    const cols = portrait ? def.short : def.long;
+    const rows = portrait ? def.long : def.short;
     this.cols = cols;
     this.rows = rows;
 
     this.path = shapePath(def.shape, cols, rows);
-    const probe = document.createElement('canvas').getContext('2d');
+    const g = probe();
+    const inPath = (x, y) => g.isPointInPath(this.path, x, y);
     this.grid = new Uint8Array(cols * rows);
     for (let r = 0; r < rows; r++)
       for (let c = 0; c < cols; c++)
         // a cell counts if its middle or any point near its corners is inside, so pointy tips get grass too
-        if ([[0.5, 0.5], [0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8]].some(([dx, dy]) => probe.isPointInPath(this.path, c + dx, r + dy)))
+        if ([[0.5, 0.5], [0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8]].some(([dx, dy]) => inPath(c + dx, r + dy)))
           this.grid[r * cols + c] = TALL;
 
     const inside = [];
     for (let i = 0; i < this.grid.length; i++) if (this.grid[i] === TALL) inside.push(i);
 
-    // start on the left side, middle height
+    // start near the front-left, where the street is
     let best = inside[0];
     let bestD = Infinity;
     for (const i of inside) {
       const c = i % cols;
       const r = (i / cols) | 0;
-      const d = (c - cols * 0.12) ** 2 + (r - rows * 0.5) ** 2;
+      const d = (c - cols * 0.12) ** 2 + (r - rows * 0.6) ** 2;
       if (d < bestD) {
         bestD = d;
         best = i;
@@ -162,14 +165,17 @@ export class Lawn {
     }
     this.start = { gx: (best % cols) + 0.5, gy: ((best / cols) | 0) + 0.5 };
 
-    // obstacles - well inside the lawn, away from the start and each other
+    // obstacles - well inside the lawn, away from the start, each other and the middle of the picture
+    const pic = fitPictureBox(this.path, cols, rows, PICTURES[def.picture]?.aspect || 1);
+    const onPicture = (gx, gy, tries) =>
+      tries < 150 && Math.abs(gx - (pic.x + pic.w / 2)) < pic.w * 0.32 && Math.abs(gy - (pic.y + pic.h / 2)) < pic.h * 0.32;
     this.obstacles = [];
     const far = (gx, gy, list, d) => list.every((o) => (o.gx - gx) ** 2 + (o.gy - gy) ** 2 > d * d);
     const isInside = (gx, gy, rad) => {
       for (let a = 0; a < 8; a++) {
         const px = gx + Math.cos((a / 8) * Math.PI * 2) * (rad + 1.2);
         const py = gy + Math.sin((a / 8) * Math.PI * 2) * (rad + 1.2);
-        if (!probe.isPointInPath(this.path, px, py)) return false;
+        if (!inPath(px, py)) return false;
       }
       return true;
     };
@@ -178,18 +184,28 @@ export class Lawn {
       const gr = kind === 'pond' ? 1.7 : 1.15;
       const gx = 2 + rng() * (cols - 4);
       const gy = 2 + rng() * (rows - 4);
-      if (!isInside(gx, gy, gr)) continue;
+      if (!isInside(gx, gy, gr) || onPicture(gx, gy, tries)) continue;
       if ((gx - this.start.gx) ** 2 + (gy - this.start.gy) ** 2 < 36) continue;
       if (!far(gx, gy, this.obstacles, gr + 4.5)) continue;
-      this.obstacles.push({ kind, gx, gy, gr, wobble: 0, x: 0, y: 0, r: 0 });
+      this.obstacles.push({ kind, gx, gy, gr });
     }
-    for (const o of this.obstacles) {
-      for (let r = 0; r < rows; r++)
-        for (let c = 0; c < cols; c++) {
-          if ((c + 0.5 - o.gx) ** 2 + (r + 0.5 - o.gy) ** 2 <= (o.gr + 0.2) ** 2 && this.grid[r * cols + c] === TALL)
-            this.grid[r * cols + c] = BLOCK;
-        }
-    }
+
+    // ramps - the mower can drive over these and fly off the end
+    this.ramps = [];
+    // (a second, looser pass so narrow shapes still get one)
+    for (const loose of [false, true])
+      for (let tries = 0; tries < 400 && this.ramps.length < def.ramps; tries++) {
+        const gx = 2 + rng() * (cols - 4);
+        const gy = 2 + rng() * (rows - 4);
+        const a = (cols >= rows ? 0 : Math.PI / 2) + (rng() < 0.5 ? 0 : Math.PI) + (rng() - 0.5) * 0.7;
+        if (!isInside(gx, gy, loose ? 0.6 : 1.3) || (!loose && onPicture(gx, gy, tries))) continue;
+        if ((gx - this.start.gx) ** 2 + (gy - this.start.gy) ** 2 < (loose ? 12 : 25)) continue;
+        if (!far(gx, gy, this.obstacles, loose ? 3.2 : 3.8) || !far(gx, gy, this.ramps, 6)) continue;
+        this.ramps.push({ gx, gy, a });
+      }
+
+    this.markBlocked();
+    this.hills = makeHills(this.seed, cols, rows, def.hills);
 
     this.total = 0;
     for (let i = 0; i < this.grid.length; i++) if (this.grid[i] === TALL) this.total++;
@@ -215,9 +231,51 @@ export class Lawn {
       }
     }
 
+    // power-ups sit on top of the grass where he can see them
+    this.powerups = [];
+    for (const kind of def.powerups) {
+      for (const i of cand) {
+        const gx = (i % cols) + 0.5;
+        const gy = ((i / cols) | 0) + 0.5;
+        if ((gx - this.start.gx) ** 2 + (gy - this.start.gy) ** 2 < 25) continue;
+        if (!far(gx, gy, this.powerups, 6) || !far(gx, gy, this.ramps, 3.5) || !far(gx, gy, this.obstacles, 3)) continue;
+        if (!isInside(gx, gy, 0)) continue;
+        this.powerups.push({ kind, gx, gy, taken: false });
+        break;
+      }
+    }
+
+    this.eventDone = false;
     this.plants = []; // flowers etc. that pop up and stay on the lawn
-    this.bgLayer = document.createElement('canvas');
-    this.tallLayer = document.createElement('canvas');
+    this.finishSetup();
+  }
+
+  // cells under obstacles and ramps don't count as grass
+  markBlocked() {
+    const { cols, rows } = this;
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++) {
+        const i = r * cols + c;
+        if (this.grid[i] !== TALL) continue;
+        const x = c + 0.5;
+        const y = r + 0.5;
+        if (this.obstacles.some((o) => (x - o.gx) ** 2 + (y - o.gy) ** 2 <= (o.gr + 0.2) ** 2)) this.grid[i] = BLOCK;
+        else if (this.ramps.some((rp) => {
+          const { u, v } = rampLocal(rp, x, y);
+          return u > -0.3 && u < RAMP.len + 0.3 && Math.abs(v) < RAMP.wid / 2 + 0.3;
+        })) this.grid[i] = OUT;
+      }
+  }
+
+  // derived things that are rebuilt (not saved) when a lawn is restored
+  finishSetup() {
+    for (const o of this.obstacles) Object.assign(o, { x: o.gx, y: o.gy, r: o.gr, wobble: 0 });
+    this.bounds = { x: 0, y: 0, w: this.cols, h: this.rows };
+    this.eventAt = eventTrigger(this.seed);
+    this.pictureBox = fitPictureBox(this.path, this.cols, this.rows, PICTURES[this.def.picture]?.aspect || 1);
+    this.maxHeight = 0;
+    for (let r = 0; r <= this.rows; r += 1)
+      for (let c = 0; c <= this.cols; c += 1) this.maxHeight = Math.max(this.maxHeight, this.height(c, r));
   }
 
   // Everything needed to rebuild this exact lawn later (saved so a closed app resumes mid-lawn).
@@ -232,13 +290,16 @@ export class Lawn {
       total: this.total,
       cutCount: this.cutCount,
       obstacles: this.obstacles.map(({ kind, gx, gy, gr }) => ({ kind, gx, gy, gr })),
+      ramps: this.ramps,
       surprises: [...this.surprises].map(([i, k]) => [i, k.type === 'star' ? '*' : k.s.id]),
       plants: this.plants.map(({ e, gx, gy }) => ({ e, gx, gy })),
+      powerups: this.powerups,
+      eventDone: this.eventDone,
     };
   }
 
   static restore(def, d) {
-    if (!d || d.n !== def.n || !d.grid || d.grid.length !== d.cols * d.rows) return null;
+    if (!d || d.v !== 2 || d.n !== def.n || !d.grid || d.grid.length !== d.cols * d.rows) return null;
     const L = Object.create(Lawn.prototype);
     L.def = def;
     L.theme = def.theme;
@@ -250,15 +311,18 @@ export class Lawn {
     L.start = d.start;
     L.total = d.total;
     L.cutCount = d.cutCount;
-    L.obstacles = d.obstacles.map((o) => ({ ...o, wobble: 0, x: 0, y: 0, r: 0 }));
+    L.obstacles = d.obstacles.map((o) => ({ ...o }));
+    L.ramps = d.ramps || [];
+    L.hills = makeHills(d.seed, d.cols, d.rows, def.hills);
     L.surprises = new Map();
     for (const [i, id] of d.surprises) {
       if (id === '*') L.surprises.set(i, { type: 'star' });
       else if (STICKER_BY_ID[id]) L.surprises.set(i, { type: 'sticker', s: STICKER_BY_ID[id] });
     }
     L.plants = d.plants.map((p) => ({ ...p, age: 10, ph: Math.random() * 6 }));
-    L.bgLayer = document.createElement('canvas');
-    L.tallLayer = document.createElement('canvas');
+    L.powerups = (d.powerups || []).map((p) => ({ ...p }));
+    L.eventDone = !!d.eventDone;
+    L.finishSetup();
     return L;
   }
 
@@ -266,231 +330,50 @@ export class Lawn {
     return this.total ? this.cutCount / this.total : 1;
   }
 
-  layout(W, H, top, pad) {
-    this.top = top;
-    this.W = W;
-    this.H = H;
-    const availW = W - pad * 2;
-    const availH = H - top - pad;
-    this.cell = Math.min(availW / this.cols, availH / this.rows, mowerCell(W, H));
-    this.ox = pad + (availW - this.cols * this.cell) / 2;
-    this.oy = top + (availH - this.rows * this.cell) / 2;
-    this.bounds = { x: this.ox, y: this.oy, w: this.cols * this.cell, h: this.rows * this.cell };
-    this.mowerSize = this.cell * CELLS_PER_MOWER;
-    this.cutRadius = this.cell * 1.75;
-    this.pxPath = scaledPath(this.path, this.cell, this.ox, this.oy);
-    for (const o of this.obstacles) {
-      o.x = this.ox + o.gx * this.cell;
-      o.y = this.oy + o.gy * this.cell;
-      o.r = o.gr * this.cell;
-    }
-    this.renderBg();
-    this.renderTall();
+  height(x, z) {
+    return groundHeight(this.hills, this.ramps, x, z);
   }
 
-  toPx(gx, gy) {
-    return { x: this.ox + gx * this.cell, y: this.oy + gy * this.cell };
+  inside(x, z) {
+    return probe().isPointInPath(this.path, x, z);
   }
 
   cellCenter(i) {
-    return this.toPx((i % this.cols) + 0.5, ((i / this.cols) | 0) + 0.5);
+    return { x: (i % this.cols) + 0.5, y: ((i / this.cols) | 0) + 0.5 };
   }
 
-  renderBg() {
-    const { W, H, theme, cell } = this;
-    const c = this.bgLayer;
-    c.width = Math.round(W * DPR);
-    c.height = Math.round(H * DPR);
-    const g = c.getContext('2d');
-    g.setTransform(DPR, 0, 0, DPR, 0, 0);
-    const rng = mulberry32(this.seed + 7);
-
-    const grad = g.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, theme.bg[0]);
-    grad.addColorStop(1, theme.bg[1]);
-    g.fillStyle = grad;
-    g.fillRect(0, 0, W, H);
-
-    // little dots/flowers/sprinkles on the ground
-    const n = Math.floor((W * H) / 2200);
-    for (let i = 0; i < n; i++) {
-      g.globalAlpha = 0.25 + rng() * 0.45;
-      g.fillStyle = theme.sprinkle[Math.floor(rng() * theme.sprinkle.length)];
-      g.beginPath();
-      g.arc(rng() * W, rng() * H, 1 + rng() * 2.2, 0, Math.PI * 2);
-      g.fill();
-    }
-    g.globalAlpha = 1;
-
-    // lawn shadow + border
-    g.save();
-    g.translate(cell * 0.12, cell * 0.22);
-    g.fillStyle = 'rgba(0,0,0,0.18)';
-    g.fill(this.pxPath);
-    g.restore();
-    g.lineJoin = 'round';
-    g.lineWidth = cell * 0.7;
-    g.strokeStyle = theme.edge;
-    g.stroke(this.pxPath);
-
-    // mowed stripes (revealed as tall grass is cut)
-    g.save();
-    g.clip(this.pxPath);
-    const landscape = this.cols >= this.rows;
-    const stripe = cell * CELLS_PER_MOWER;
-    const span = landscape ? this.cols * cell : this.rows * cell;
-    for (let s = 0, k = 0; s < span + stripe; s += stripe, k++) {
-      g.fillStyle = k % 2 ? theme.cutA : theme.cutB;
-      if (landscape) g.fillRect(this.ox + s, this.oy, stripe + 1, this.rows * cell);
-      else g.fillRect(this.ox, this.oy + s, this.cols * cell, stripe + 1);
-    }
-    // soft checker texture
-    g.fillStyle = 'rgba(255,255,255,0.06)';
-    for (let r = 0; r < this.rows; r++)
-      for (let cc = (r % 2); cc < this.cols; cc += 2) g.fillRect(this.ox + cc * cell, this.oy + r * cell, cell, cell);
-    // ponds are flat, so they live in the background
-    for (const o of this.obstacles) {
-      if (o.kind !== 'pond') continue;
-      g.fillStyle = '#8d6e63';
-      g.beginPath();
-      g.ellipse(o.x, o.y, o.r * 1.12, o.r * 0.95, 0, 0, Math.PI * 2);
-      g.fill();
-      g.fillStyle = theme.id === 'candy' ? '#80d8ff' : theme.id === 'moon' ? '#4fc3f7' : '#42a5f5';
-      g.beginPath();
-      g.ellipse(o.x, o.y, o.r, o.r * 0.83, 0, 0, Math.PI * 2);
-      g.fill();
-      g.fillStyle = 'rgba(255,255,255,0.35)';
-      g.beginPath();
-      g.ellipse(o.x - o.r * 0.3, o.y - o.r * 0.3, o.r * 0.35, o.r * 0.14, -0.3, 0, Math.PI * 2);
-      g.fill();
-    }
-    g.restore();
-
-    // decorations around the lawn
-    const step = Math.max(56, Math.min(W, H) / 7);
-    const b = this.bounds;
-    const marginBox = { x: b.x - cell * 0.9, y: b.y - cell * 0.9, w: b.w + cell * 1.8, h: b.h + cell * 1.8 };
-    for (let y = step * 0.6; y < H; y += step) {
-      for (let x = step * 0.5; x < W; x += step) {
-        if (rng() > 0.55) continue;
-        const px = x + (rng() - 0.5) * step * 0.6;
-        const py = y + (rng() - 0.5) * step * 0.6;
-        const sz = step * (0.42 + rng() * 0.3);
-        const ex = sz * 0.65;
-        if (px + ex > marginBox.x && px - ex < marginBox.x + marginBox.w && py + ex > marginBox.y && py - ex < marginBox.y + marginBox.h) continue;
-        if (py - sz * 0.5 < this.top - 20) continue; // keep the HUD clear
-        g.fillStyle = 'rgba(0,0,0,0.15)';
-        g.beginPath();
-        g.ellipse(px, py + sz * 0.4, sz * 0.4, sz * 0.12, 0, 0, Math.PI * 2);
-        g.fill();
-        drawEmoji(g, theme.decor[Math.floor(rng() * theme.decor.length)], px, py, sz);
-      }
-    }
-  }
-
-  renderTall() {
-    const { W, H, theme, cell, cols, rows } = this;
-    const c = this.tallLayer;
-    c.width = Math.round(W * DPR);
-    c.height = Math.round(H * DPR);
-    const g = c.getContext('2d');
-    g.setTransform(DPR, 0, 0, DPR, 0, 0);
-    g.save();
-    g.clip(this.pxPath);
-    g.fillStyle = theme.tallBase;
-    for (let r = 0; r < rows; r++)
-      for (let cc = 0; cc < cols; cc++)
-        if (this.grid[r * cols + cc] === TALL || this.grid[r * cols + cc] === BLOCK) g.fillRect(this.ox + cc * cell - 0.5, this.oy + r * cell - 0.5, cell + 1, cell + 1);
-
-    // blades, batched by color so it's one stroke per color
-    const paths = theme.blades.map(() => new Path2D());
-    for (let r = 0; r < rows; r++)
-      for (let cc = 0; cc < cols; cc++) {
-        const v = this.grid[r * cols + cc];
-        if (v !== TALL && v !== BLOCK) continue;
-        const x0 = this.ox + cc * cell;
-        const y0 = this.oy + r * cell;
-        for (let k = 0; k < 6; k++) {
-          const bx = x0 + Math.random() * cell;
-          const by = y0 + cell * (0.7 + Math.random() * 0.4);
-          const lean = (Math.random() - 0.5) * cell * 0.7;
-          const hgt = cell * (0.7 + Math.random() * 0.5);
-          const p = paths[(Math.random() * paths.length) | 0];
-          p.moveTo(bx, by);
-          p.quadraticCurveTo(bx + lean * 0.2, by - hgt * 0.6, bx + lean, by - hgt);
-        }
-      }
-    g.lineCap = 'round';
-    g.lineWidth = Math.max(1.5, cell * 0.13);
-    paths.forEach((p, i) => {
-      g.strokeStyle = theme.blades[i];
-      g.stroke(p);
-    });
-    g.restore();
-    // round clearings around obstacles (instead of square holes)
-    for (const o of this.obstacles) this.eraseTall(o.x, o.y, (o.gr + 0.2) * cell);
-  }
-
-  eraseTall(x, y, r) {
-    const g = this.tallLayer.getContext('2d');
-    g.save();
-    g.globalCompositeOperation = 'destination-out';
-    g.beginPath();
-    g.arc(x, y, r, 0, Math.PI * 2);
-    g.fill();
-    g.restore();
-  }
-
-  clearAllTall() {
-    const g = this.tallLayer.getContext('2d');
-    g.save();
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.clearRect(0, 0, this.tallLayer.width, this.tallLayer.height);
-    g.restore();
-  }
-
-  // Cut everything within the mower's radius along a segment. Returns newly cut cell indices.
-  mowSegment(x0, y0, x1, y1) {
-    const R = this.cutRadius;
+  // Cut everything within radius R along a segment. Returns newly cut cell indices.
+  mowSegment(x0, y0, x1, y1, R = CUT_RADIUS) {
     const d = Math.hypot(x1 - x0, y1 - y0);
     const steps = Math.max(1, Math.ceil(d / (R * 0.4)));
     const out = [];
-    for (let s = 1; s <= steps; s++) {
-      const x = x0 + ((x1 - x0) * s) / steps;
-      const y = y0 + ((y1 - y0) * s) / steps;
-      this.eraseTall(x, y, R);
-      this.cutCircle(x, y, R, out);
-    }
+    for (let s = 1; s <= steps; s++) this.cutCircle(x0 + ((x1 - x0) * s) / steps, y0 + ((y1 - y0) * s) / steps, R, out);
     return out;
   }
 
-  cutCircle(x, y, R, out) {
-    const { cols, rows, cell } = this;
-    const gx = (x - this.ox) / cell;
-    const gy = (y - this.oy) / cell;
-    const Rg = R / cell;
-    const r0 = Math.max(0, Math.floor(gy - Rg));
-    const r1 = Math.min(rows - 1, Math.ceil(gy + Rg));
-    const c0 = Math.max(0, Math.floor(gx - Rg));
-    const c1 = Math.min(cols - 1, Math.ceil(gx + Rg));
+  cutCircle(gx, gy, R, out = []) {
+    const { cols, rows } = this;
+    const r0 = Math.max(0, Math.floor(gy - R));
+    const r1 = Math.min(rows - 1, Math.ceil(gy + R));
+    const c0 = Math.max(0, Math.floor(gx - R));
+    const c1 = Math.min(cols - 1, Math.ceil(gx + R));
     for (let r = r0; r <= r1; r++)
       for (let c = c0; c <= c1; c++) {
         const i = r * cols + c;
         if (this.grid[i] !== TALL) continue;
-        if ((c + 0.5 - gx) ** 2 + (r + 0.5 - gy) ** 2 <= Rg * Rg) {
+        if ((c + 0.5 - gx) ** 2 + (r + 0.5 - gy) ** 2 <= R * R) {
           this.grid[i] = CUT;
           this.cutCount++;
           out.push(i);
         }
       }
+    return out;
   }
 
   cutCell(i) {
     if (this.grid[i] !== TALL) return false;
     this.grid[i] = CUT;
     this.cutCount++;
-    const p = this.cellCenter(i);
-    this.eraseTall(p.x, p.y, this.cell * 1.2);
     return true;
   }
 
@@ -513,31 +396,5 @@ export class Lawn {
       }
     }
     return best;
-  }
-
-  drawObstacles(ctx, t, dt) {
-    for (const o of this.obstacles) {
-      if (o.kind === 'pond') {
-        drawEmoji(ctx, this.theme.id === 'moon' ? '🐙' : '🦆', o.x + Math.sin(t * 0.8) * o.r * 0.35, o.y + Math.cos(t * 0.6) * o.r * 0.2, o.r * 0.7);
-        continue;
-      }
-      o.wobble = Math.max(0, o.wobble - dt * 2.5);
-      const w = Math.sin(t * 30) * o.wobble * 0.15;
-      ctx.fillStyle = 'rgba(0,0,0,0.2)';
-      ctx.beginPath();
-      ctx.ellipse(o.x + o.r * 0.1, o.y + o.r * 0.7, o.r * 0.9, o.r * 0.32, 0, 0, Math.PI * 2);
-      ctx.fill();
-      drawEmoji(ctx, o.kind, o.x, o.y - o.r * 0.15, o.r * 2.1, w);
-      if (o.kind === '🐕') drawEmoji(ctx, '💤', o.x + o.r * 0.8, o.y - o.r * 1.1 - Math.sin(t * 2) * 4, o.r * 0.7);
-    }
-  }
-
-  drawPlants(ctx, t) {
-    for (const p of this.plants) {
-      const k = Math.min(1, p.age / 0.4);
-      const s = this.cell * 1.6 * (k < 1 ? k * 1.2 : 1 + Math.sin(t * 3 + p.ph) * 0.04);
-      const pos = this.toPx(p.gx, p.gy);
-      drawEmoji(ctx, p.e, pos.x, pos.y - s * 0.3, s);
-    }
   }
 }

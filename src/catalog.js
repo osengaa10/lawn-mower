@@ -61,3 +61,12 @@ export const MOWERS = [
 ];
 
 export const MOWER_BY_ID = Object.fromEntries(MOWERS.map((m) => [m.id, m]));
+
+// Whose lawn it is. Every lawn belongs to a house on the street.
+export const OWNERS = {
+  day: [{ e: '🐰', name: 'Bunny' }, { e: '🐶', name: 'Puppy' }, { e: '🐻', name: 'Bear' }, { e: '🦕', name: 'Dino' }],
+  sunset: [{ e: '🦊', name: 'Fox' }, { e: '🐷', name: 'Piggy' }, { e: '🐮', name: 'Cow' }],
+  night: [{ e: '🦉', name: 'Owl' }, { e: '🦝', name: 'Raccoon' }, { e: '🐨', name: 'Koala' }],
+  candy: [{ e: '🦄', name: 'Unicorn' }, { e: '🐼', name: 'Panda' }, { e: '🧚', name: 'Fairy' }],
+  moon: [{ e: '👽', name: 'Alien' }, { e: '🤖', name: 'Robot' }, { e: '🐵', name: 'Space monkey' }],
+};

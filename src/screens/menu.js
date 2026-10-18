@@ -12,7 +12,7 @@ export class MenuScreen {
   constructor(game) {
     this.g = game;
     this.t = 0;
-    this.playBtn = new Button({ color: '#43a047', pulse: true, draw: playTriangle, onTap: () => { sfx.tap(); game.go('play'); } });
+    this.playBtn = new Button({ color: '#43a047', pulse: true, draw: playTriangle, onTap: () => { sfx.tap(); game.go('street'); } });
     this.garageBtn = new Button({
       icon: '🚜', color: '#42a5f5',
       onTap: () => { sfx.tap(); say('My mowers!', { force: true }); game.go('garage'); },

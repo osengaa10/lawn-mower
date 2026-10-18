@@ -162,6 +162,7 @@ export function drawMower(ctx, skin, x, y, size, heading, t, opts = {}) {
   if (skin.crown) drawEmoji(ctx, '👑', sx, sy - size * 0.45 - b, size * 0.26);
 }
 
+// Mower movement in grid cells. The body is drawn by world3d/mower3d.js.
 export class Mower {
   constructor(skin, x, y, size) {
     this.skin = skin;
@@ -170,17 +171,28 @@ export class Mower {
     this.vx = 0;
     this.vy = 0;
     this.heading = 0;
-    this.size = size;
+    this.size = size; // normal length in cells
+    this.scale = 1; // grows during the giant power-up
+    this.scaleTarget = 1;
+    this.speedMul = 1;
     this.speed01 = 0;
+    // height off the ground, for hills and ramp jumps
+    this.h = 0;
+    this.vh = 0;
+    this.airborne = false;
+    this.rise = 0;
+    this.squash = 0;
+    this.travel = 0;
   }
 
   get radius() {
-    return this.size * 0.36;
+    return this.size * this.scale * 0.36;
   }
 
   // Glide toward the finger. Returns true if it bumped an obstacle this frame.
   update(dt, target, bounds, obstacles) {
-    const maxSpd = this.size * 3.4;
+    this.scale += (this.scaleTarget - this.scale) * (1 - Math.exp(-dt * 6));
+    const maxSpd = this.size * 3.4 * this.speedMul;
     let dvx = 0;
     let dvy = 0;
     if (target) {
@@ -188,19 +200,21 @@ export class Mower {
       const dy = target.y - this.y;
       const d = Math.hypot(dx, dy);
       if (d > this.size * 0.12) {
-        const spd = Math.min(maxSpd, d * 3.2);
+        const spd = Math.min(maxSpd, d * 3.2 * Math.max(1, this.speedMul * 0.8));
         dvx = (dx / d) * spd;
         dvy = (dy / d) * spd;
       }
     }
-    const k = 1 - Math.exp(-dt * 7);
+    // no steering in mid-air, it just sails along
+    const k = this.airborne ? 0 : 1 - Math.exp(-dt * 7);
     this.vx += (dvx - this.vx) * k;
     this.vy += (dvy - this.vy) * k;
     this.x += this.vx * dt;
     this.y += this.vy * dt;
 
     const spd = Math.hypot(this.vx, this.vy);
-    if (spd > this.size * 0.3) {
+    this.travel += spd * dt;
+    if (spd > this.size * 0.3 && !this.airborne) {
       const h = Math.atan2(this.vy, this.vx);
       this.heading += angleDiff(this.heading, h) * Math.min(1, dt * 9);
     }
@@ -228,11 +242,43 @@ export class Mower {
 
     this.x = clamp(this.x, bounds.x, bounds.x + bounds.w);
     this.y = clamp(this.y, bounds.y, bounds.y + bounds.h);
-    this.speed01 = clamp(spd / maxSpd, 0, 1);
+    this.speed01 = clamp(spd / (this.size * 3.4), 0, 1);
     return bumped;
   }
 
-  draw(ctx, t, lights) {
-    drawMower(ctx, this.skin, this.x, this.y, this.size, this.heading, t, { moving: this.speed01, lights });
+  // Follow the ground, and fly off the end of a ramp. Returns 'launch', 'land' or null.
+  updateHeight(dt, ground) {
+    this.squash = Math.max(0, this.squash - dt * 4);
+    if (this.airborne) {
+      this.vh -= 22 * dt;
+      this.h += this.vh * dt;
+      if (this.h <= ground) {
+        this.h = ground;
+        this.airborne = false;
+        this.squash = 1;
+        return 'land';
+      }
+      return null;
+    }
+    const drop = this.h - ground;
+    if (drop > 0.25 && this.rise > 1.2) {
+      // went over the lip of a ramp
+      this.airborne = true;
+      this.vh = clamp(this.rise * 2.2, 4.5, 8);
+      return 'launch';
+    }
+    const prev = this.h;
+    // climb quickly but smoothly onto anything higher, settle down hills
+    this.h = ground > this.h ? this.h + (ground - this.h) * (1 - Math.exp(-dt * 30)) : ground;
+    const r = (this.h - prev) / Math.max(dt, 1e-3);
+    this.rise = r > 0 ? r : this.rise * Math.exp(-dt * 20);
+    return null;
+  }
+
+  // a little hop, for the horn
+  hop(v = 4) {
+    if (this.airborne) return;
+    this.airborne = true;
+    this.vh = v;
   }
 }

@@ -15,7 +15,7 @@ export class Celebration {
     this.play = play;
     this.nextBtn = new Button({
       color: '#43a047', pulse: true, draw: playTriangle,
-      onTap: () => { sfx.tap(); play.newLawn(); },
+      onTap: () => { sfx.tap(); game.streetIntro = 'thanks'; game.go('street'); },
     });
     this.homeBtn = new Button({ icon: '🏠', color: '#ffb74d', onTap: () => { sfx.tap(); game.go('menu'); } });
   }

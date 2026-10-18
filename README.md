@@ -2,11 +2,15 @@
 
 A happy, frustration-free lawn mowing game for little kids, made for iPad and iPhone.
 
-- Touch anywhere and the mower drives to your finger.
-- Animals, flowers, and stars are hidden in the grass.
-- Finish a lawn to earn stars, which unlock new mowers.
-- The sticker book collects everything you find.
-- Every third lawn is a giant one that fills the whole screen.
+- Touch anywhere and the mower drives to your finger. The lawn is a little 3D world seen from above.
+- Every lawn hides a giant picture (a dinosaur, a rocket, a kitty...). Mowing uncovers it, and at the end the camera swoops up to show it off.
+- Each lawn belongs to someone's house. Finished lawns stay on a street you can swipe back along to see every picture.
+- Animal friends live on the lawn: a puppy follows the mower, bunnies hop out of the way, owls fly off. The 📣 horn makes everyone jump.
+- Glowing power-ups: 🍄 makes the mower GIANT, ⚡ is a turbo boost, 🫧 blows bubbles.
+- Partway through each lawn there's a surprise: a balloon drops a present, sprinklers pop up, a cow comes to help, or stars and candy fall from the sky.
+- Later lawns have hills and wooden ramps to jump off.
+- Animals, flowers, and stars are hidden in the grass. The sticker book collects everything you find.
+- Finish a lawn to earn stars, which unlock new mowers. Every third lawn is a giant one.
 - You can't lose. There are no timers, and the last few bits of grass mow themselves.
 
 ## Run it locally
@@ -41,22 +45,37 @@ Tips:
 - **No sound on iPhone?** Flip the ring/silent switch off.
 - **Sound buttons:** the 🔊 and 🎵 buttons on the title screen turn off all sound or just the music.
 - **Changed icon not showing?** iOS caches home-screen icons. Delete the shortcut and add it again.
-- **Progress is saved on the device:** stars, mowers, stickers, and even a half-mowed lawn. Closing the app mid-lawn picks up right where he left off.
+- **Progress is saved on the device:** stars, mowers, stickers, the street, and even a half-mowed lawn. Closing the app mid-lawn picks up right where he left off.
 - **The home-screen app and Safari keep separate progress.** Once he plays from the home-screen icon, keep using the icon.
 - **Updates:** after you push an update, the game picks it up the second time it's opened.
 - **Start over:** to reset progress, run `localStorage.clear()` in the browser console.
 
+## Testing shortcuts
+
+In the browser console:
+
+- `__game.debug.goto(4)`: jump to lawn 4 (hills and a ramp start here)
+- `__game.debug.power('giant')`: also `'turbo'` or `'bubbles'`
+- `__game.debug.event('balloon')`: also `'sprinklers'`, `'cow'`, `'stars'` or `'candy'`
+- `__game.debug.finish()`: finish the lawn (picture reveal, then the stars)
+- `__game.debug.street()`: show the street
+
 ## Files
 
-- `index.html`: page setup, iOS full-screen settings
-- `src/main.js`: boot, resize handling, game loop, screen switching
-- `src/lawn.js`: grass grid, lawn shapes, cutting, obstacles, hidden surprises
-- `src/mower.js`: mower movement (follows the finger) and drawing
-- `src/levels.js`: the endless lawn sequence (size, shape, world, obstacles)
+- `index.html`: page setup, iOS full-screen settings. Two canvases: the 3D world at the back, buttons and menus on top.
+- `src/main.js`: boot, resize handling, game loop, screen switching, console test shortcuts
+- `src/lawn.js`: lawn shapes, grass grid, cutting, obstacles, ramps, hidden surprises, power-up spots (all in grid cells)
+- `src/terrain.js`: hills, ramps and other seeded numbers (no browser needed, so it's tested in Node)
+- `src/mower.js`: mower movement (follows the finger, jumps off ramps), plus the flat drawing used in menus
+- `src/levels.js`: the endless lawn sequence (size, shape, world, picture, owner, power-ups, surprise)
+- `src/pictures.js`: the giant pictures hidden in each lawn
+- `src/buddies.js`, `src/powerups.js`, `src/events.js`: animal friends and the horn, power-ups, mid-lawn surprises
 - `src/themes.js`: worlds (sunny day, sunset, night, candy land, moon)
-- `src/catalog.js`: stickers (hidden surprises) and unlockable mowers
-- `src/screens/`: title menu, play screen, celebration, garage, sticker book
-- `src/audio.js`, `src/music.js`, `src/speech.js`: sound effects, background music, and spoken praise, all generated in code
+- `src/catalog.js`: stickers, unlockable mowers, house owners
+- `src/world3d/`: the 3D side, built on three.js: camera, ground and picture painting, grass, mower model, props and houses, particles, emoji cutouts
+- `src/screens/`: title menu, play screen, street, celebration, garage, sticker book
+- `src/audio.js`, `src/music.js`, `src/speech.js`: sound effects, background music, and spoken words, all generated in code
+- `vendor/three.module.min.js`: three.js r169 (the same copy as monster-truck)
 - `sw.js`: offline support (caches the game after the first launch)
 - `scripts/serve.js`: the local test server behind `npm start`
 - `test/`: checks for `npm test`

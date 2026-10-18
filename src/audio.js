@@ -185,6 +185,80 @@ export const sfx = {
     seq.forEach(([f, w]) => tone(f, w === 1.1 ? 0.8 : 0.2, { type: 'square', vol: 0.08, when: w }));
     seq.forEach(([f, w]) => tone(f / 2, 0.2, { type: 'triangle', vol: 0.1, when: w }));
   },
+  // beep beep!
+  honk() {
+    if (!throttle('honk', 300)) return;
+    for (const w of [0, 0.22]) {
+      tone(415, 0.18, { type: 'square', vol: 0.12, when: w });
+      tone(523, 0.18, { type: 'square', vol: 0.1, when: w });
+    }
+  },
+  bark() {
+    for (const w of [0, 0.2]) {
+      noise(0.07, { vol: 0.15, freq: 900, q: 1.5, when: w });
+      tone(620, 0.12, { type: 'sawtooth', vol: 0.08, slide: 330, when: w });
+    }
+  },
+  squeak() {
+    if (!throttle('squeak', 150)) return;
+    tone(rand(1100, 1400), 0.1, { type: 'sine', vol: 0.12, slide: rand(1700, 2100) });
+  },
+  stomp() {
+    if (!throttle('stomp', 200)) return;
+    tone(70, 0.25, { type: 'sine', vol: 0.35, slide: 40 });
+    noise(0.2, { vol: 0.15, freq: 300, type: 'lowpass', q: 0.7 });
+  },
+  wheee() {
+    tone(380, 0.55, { type: 'triangle', vol: 0.16, slide: 1250 });
+    tone(760, 0.45, { type: 'sine', vol: 0.06, slide: 2000, when: 0.05 });
+  },
+  land() {
+    if (!throttle('land', 200)) return;
+    noise(0.25, { vol: 0.2, freq: 500, type: 'lowpass', q: 0.8 });
+    tone(130, 0.2, { type: 'sine', vol: 0.25, slide: 60 });
+  },
+  powerup() {
+    [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.18, { type: 'square', vol: 0.07, when: i * 0.06 }));
+    tone(1568, 0.5, { type: 'triangle', vol: 0.12, when: 0.3 });
+  },
+  powerdown() {
+    tone(900, 0.25, { type: 'triangle', vol: 0.14, slide: 400 });
+    tone(rand(380, 520), 0.12, { type: 'sine', vol: 0.2, slide: 1200, when: 0.25 });
+  },
+  boost() {
+    noise(0.6, { vol: 0.14, freq: 500, sweepTo: 4000, q: 1.5 });
+    tone(300, 0.5, { type: 'sawtooth', vol: 0.06, slide: 1100 });
+  },
+  bubble() {
+    if (!throttle('bubble', 70)) return;
+    tone(rand(700, 1000), 0.07, { type: 'sine', vol: 0.12, slide: rand(1400, 2000) });
+  },
+  moo() {
+    tone(190, 0.9, { type: 'sawtooth', vol: 0.06, slide: 140, attack: 0.15 });
+    tone(95, 0.9, { type: 'triangle', vol: 0.14, slide: 72, attack: 0.15 });
+  },
+  munch() {
+    if (!throttle('munch', 180)) return;
+    noise(0.06, { vol: 0.1, freq: 1800, q: 2 });
+    noise(0.06, { vol: 0.08, freq: 1400, q: 2, when: 0.08 });
+  },
+  splash() {
+    if (!throttle('splash', 250)) return;
+    noise(0.45, { vol: 0.12, freq: 3500, type: 'highpass', q: 0.7 });
+    tone(rand(900, 1200), 0.1, { type: 'sine', vol: 0.06, slide: 500 });
+  },
+  whistle() {
+    tone(1200, 0.9, { type: 'sine', vol: 0.09, slide: 500 });
+  },
+  giftOpen() {
+    noise(0.3, { vol: 0.12, freq: 2500, q: 0.8 });
+    [784, 988, 1175, 1568].forEach((f, i) => tone(f, 0.25, { type: 'triangle', vol: 0.14, when: 0.05 + i * 0.07 }));
+  },
+  candy(step = 0) {
+    const f = PENTA[step % PENTA.length];
+    tone(f, 0.2, { type: 'triangle', vol: 0.15 });
+    tone(f * 2, 0.15, { type: 'sine', vol: 0.06, when: 0.05 });
+  },
 };
 
 // Putt-putt engine: a low sawtooth with a fast tremolo, louder/faster with speed.
