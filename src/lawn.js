@@ -12,6 +12,16 @@ export const BLOCK = 3;
 export const MOWER_CELLS = 3;
 export const CUT_RADIUS = 1.75;
 
+// Mowing stripes: cut grass leans the way the mower drove, and grass leaning
+// away from you looks light while grass leaning toward you looks dark, like
+// a real freshly mowed lawn. Every cell keeps a shade (128 = not striped).
+export const STRIPE_NONE = 128;
+export function stripeShade(heading) {
+  // lit from up-left of the screen, so back-and-forth rows in any direction alternate
+  const v = 0.5 + 0.5 * (Math.cos(heading) + Math.sin(heading)) * -0.7071;
+  return Math.round(40 + v * 175);
+}
+
 // Lawn outline in grid units (0..cols, 0..rows).
 export function shapePath(shape, cols, rows) {
   const p = new Path2D();
@@ -246,6 +256,7 @@ export class Lawn {
     }
 
     this.eventDone = false;
+    this.shade = new Uint8Array(cols * rows).fill(STRIPE_NONE);
     this.plants = []; // flowers etc. that pop up and stay on the lawn
     this.finishSetup();
   }
@@ -295,6 +306,7 @@ export class Lawn {
       plants: this.plants.map(({ e, gx, gy }) => ({ e, gx, gy })),
       powerups: this.powerups,
       eventDone: this.eventDone,
+      shade: Array.from(this.shade, (v) => Math.round((v / 255) * 9)).join(''),
     };
   }
 
@@ -322,6 +334,7 @@ export class Lawn {
     L.plants = d.plants.map((p) => ({ ...p, age: 10, ph: Math.random() * 6 }));
     L.powerups = (d.powerups || []).map((p) => ({ ...p }));
     L.eventDone = !!d.eventDone;
+    L.shade = d.shade && d.shade.length === d.cols * d.rows ? Uint8Array.from(d.shade, (c) => Math.round((+c * 255) / 9)) : new Uint8Array(d.cols * d.rows).fill(STRIPE_NONE);
     L.finishSetup();
     return L;
   }
@@ -364,6 +377,26 @@ export class Lawn {
         if ((c + 0.5 - gx) ** 2 + (r + 0.5 - gy) ** 2 <= R * R) {
           this.grid[i] = CUT;
           this.cutCount++;
+          out.push(i);
+        }
+      }
+    return out;
+  }
+
+  // Lay a stripe under the mower: every mowed cell within R takes this shade
+  // (driving over cut grass again re-stripes it). Returns the cells that changed.
+  stripeAt(gx, gy, R, shade, out = []) {
+    const { cols, rows } = this;
+    const r0 = Math.max(0, Math.floor(gy - R));
+    const r1 = Math.min(rows - 1, Math.ceil(gy + R));
+    const c0 = Math.max(0, Math.floor(gx - R));
+    const c1 = Math.min(cols - 1, Math.ceil(gx + R));
+    for (let r = r0; r <= r1; r++)
+      for (let c = c0; c <= c1; c++) {
+        const i = r * cols + c;
+        if (this.grid[i] !== CUT || this.shade[i] === shade) continue;
+        if ((c + 0.5 - gx) ** 2 + (r + 0.5 - gy) ** 2 <= R * R) {
+          this.shade[i] = shade;
           out.push(i);
         }
       }

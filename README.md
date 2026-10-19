@@ -4,11 +4,12 @@ A happy, frustration-free lawn mowing game for little kids, made for iPad and iP
 
 - Touch anywhere and the mower drives to your finger. The lawn is a little 3D world seen from above, with real shadows, swaying grass and animated animal friends.
 - The title screen is a little 3D front yard where your mower cuts stripes while the puppy follows along.
-- Every lawn hides a giant picture (a dinosaur, a rocket, a kitty...). Mowing uncovers it, and at the end the camera swoops up to show it off.
+- Mowing leaves real stripes: the grass leans the way you drove, so back-and-forth rows come out light and dark like a fresh lawn, and driving over cut grass again redraws them. A soft hum and grass swish, a gentle chime for every finished row, and calm music keep it relaxing.
+- Every lawn hides a giant picture (a dinosaur, a rocket, a kitty...). Mowing uncovers it. At the end the camera drifts quietly over the new stripes, then swoops up to show it off.
 - Each lawn belongs to someone's house. Finished lawns stay on a street you can swipe back along to see every picture.
 - Animal friends live on the lawn: a puppy follows the mower, bunnies hop out of the way, owls fly off. The 📣 horn makes everyone jump.
 - Glowing power-ups: 🍄 makes the mower GIANT, ⚡ is a turbo boost, 🫧 blows bubbles.
-- Partway through each lawn there's a surprise: a balloon drops a present, sprinklers pop up, a cow comes to help, or stars and candy fall from the sky.
+- Partway through every other lawn there's a surprise: a balloon drops a present, sprinklers pop up, a cow comes to help, or stars and candy fall from the sky.
 - Later lawns have hills and wooden ramps to jump off.
 - Animals, flowers, and stars are hidden in the grass. The sticker book collects everything you find.
 - Finish a lawn to earn stars, which unlock new mowers. Every third lawn is a giant one.

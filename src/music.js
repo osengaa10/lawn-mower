@@ -1,8 +1,17 @@
-// A short, bouncy loop built from oscillators, scheduled slightly ahead of time.
+// A short loop built from oscillators, scheduled slightly ahead of time.
+// 'bouncy' for menus and celebrations; 'calm' while mowing: the same tune,
+// slower, softer and rounder, with no shaker.
 import { audioCtx, musicDest } from './audio.js';
 
-const BPM = 112;
-const STEP = 60 / BPM / 2; // eighth notes
+const MOODS = {
+  bouncy: { bpm: 112, lead: 'triangle', leadVol: 0.07, leadLen: 1.6, bassVol: 0.12, shaker: true },
+  calm: { bpm: 80, lead: 'sine', leadVol: 0.05, leadLen: 3.2, bassVol: 0.09, shaker: false },
+};
+let mood = MOODS.bouncy;
+
+export function setMusicMood(name) {
+  mood = MOODS[name] || MOODS.bouncy;
+}
 
 // semitones from C5; null = rest
 const MELODY_A = [0, null, 4, null, 7, 9, 7, null, 4, null, 2, 4, 0, null, null, null,
@@ -38,17 +47,18 @@ function schedule() {
   if (!ac || ac.state !== 'running') return;
   if (nextTime < ac.currentTime) nextTime = ac.currentTime + 0.05;
   while (nextTime < ac.currentTime + 0.25) {
+    const STEP = 60 / mood.bpm / 2; // eighth notes
     const bar64 = step % 64;
     const mel = bar64 < 32 ? MELODY_A : MELODY_B;
     const m = mel[bar64 % 32];
-    if (m !== null) note(hz(m, 523.25), nextTime, STEP * 1.6, 'triangle', 0.07);
+    if (m !== null) note(hz(m, 523.25), nextTime, STEP * mood.leadLen, mood.lead, mood.leadVol);
     if (step % 4 === 0) {
       const b = BASS[Math.floor(step / 8) % BASS.length];
-      note(hz(b, 130.81), nextTime, STEP * 1.8, 'sine', 0.12);
+      note(hz(b, 130.81), nextTime, STEP * (mood.shaker ? 1.8 : 3.6), 'sine', mood.bassVol);
     }
     if (step % 4 === 2) note(hz(BASS[Math.floor(step / 8) % BASS.length] + 7, 261.63), nextTime, STEP * 0.8, 'sine', 0.04);
     // soft shaker on the off beats
-    if (step % 2 === 1) note(6000 + (step % 3) * 300, nextTime, 0.03, 'square', 0.004);
+    if (mood.shaker && step % 2 === 1) note(6000 + (step % 3) * 300, nextTime, 0.03, 'square', 0.004);
     nextTime += STEP;
     step++;
   }

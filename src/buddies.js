@@ -23,7 +23,8 @@ export class Buddies {
     this.play = play;
     const { lawn } = play;
     const list = BUDDIES[lawn.theme.id] || BUDDIES.day;
-    const n = lawn.def.n === 0 ? 2 : list.length;
+    // two friends at most, so the lawn stays calm
+    const n = Math.min(2, list.length);
     this.list = [];
     const tall = lawn.tallCells();
     let leader = null;

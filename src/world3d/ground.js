@@ -1,15 +1,18 @@
-// The ground: a hilly mesh with the lawn painted on it (mowed stripes and the
-// hidden picture). A tiny per-cell mask darkens cells that still have tall
-// grass, so the picture only shows where he has mowed.
+// The ground: a hilly mesh with the lawn painted on it (the hidden picture).
+// Two tiny per-cell textures sit on top: one darkens cells that still have
+// tall grass, so the picture only shows where he has mowed, and one shades
+// mowed cells lighter or darker by the way the mower went over them (stripes).
 import { THREE } from './renderer.js';
-import { MOWER_CELLS, TALL } from '../lawn.js';
+import { MOWER_CELLS, STRIPE_NONE, TALL } from '../lawn.js';
 import { drawPicture } from '../pictures.js';
 import { hillHeight, mulberry32 } from '../terrain.js';
 
 export const YARD = 10; // cells of yard around the lawn
 
 // Paint the lawn in grid units (the caller sets up the transform).
-export function paintLawn(g, lawn, { picture = true } = {}) {
+// stripes: paint fixed stripes (the street's little lawns); the play lawn
+// gets an even color and real stripes from where the mower actually went.
+export function paintLawn(g, lawn, { picture = true, stripes = true } = {}) {
   const { cols, rows, path, theme } = lawn;
   g.save();
   g.translate(0.12, 0.22);
@@ -23,10 +26,19 @@ export function paintLawn(g, lawn, { picture = true } = {}) {
   g.clip(path);
   const landscape = cols >= rows;
   const span = landscape ? cols : rows;
-  for (let s = 0, k = 0; s < span + MOWER_CELLS; s += MOWER_CELLS, k++) {
-    g.fillStyle = k % 2 ? theme.cutA : theme.cutB;
-    if (landscape) g.fillRect(s, 0, MOWER_CELLS + 0.02, rows);
-    else g.fillRect(0, s, cols, MOWER_CELLS + 0.02);
+  if (stripes) {
+    for (let s = 0, k = 0; s < span + MOWER_CELLS; s += MOWER_CELLS, k++) {
+      g.fillStyle = k % 2 ? theme.cutA : theme.cutB;
+      if (landscape) g.fillRect(s, 0, MOWER_CELLS + 0.02, rows);
+      else g.fillRect(0, s, cols, MOWER_CELLS + 0.02);
+    }
+  } else {
+    g.fillStyle = theme.cutA;
+    g.fillRect(0, 0, cols, rows);
+    g.globalAlpha = 0.5;
+    g.fillStyle = theme.cutB;
+    g.fillRect(0, 0, cols, rows);
+    g.globalAlpha = 1;
   }
   if (picture && lawn.pictureBox) {
     const b = lawn.pictureBox;
@@ -109,12 +121,21 @@ function addTallMask(mat, uniforms) {
       '#include <begin_vertex>\nvLawnXZ = (modelMatrix * vec4(transformed, 1.0)).xz;',
     );
     shader.fragmentShader =
-      'uniform sampler2D tallMap;\nuniform vec2 tallSize;\nuniform vec3 tallColor;\nvarying vec2 vLawnXZ;\n' +
+      'uniform sampler2D tallMap;\nuniform sampler2D stripeMap;\nuniform vec2 tallSize;\nuniform vec3 tallColor;\nvarying vec2 vLawnXZ;\n' +
       shader.fragmentShader.replace(
         '#include <map_fragment>',
         `#include <map_fragment>
-        float tall = smoothstep(0.3, 0.7, texture2D(tallMap, (vLawnXZ + 1.0) / tallSize).r);
+        vec2 cellUv = (vLawnXZ + 1.0) / tallSize;
+        float stripe = texture2D(stripeMap, cellUv).r;
+        float tall = smoothstep(0.3, 0.7, texture2D(tallMap, cellUv).r);
         diffuseColor.rgb = mix(diffuseColor.rgb, tallColor, tall);`,
+      ).replace(
+        '#include <tonemapping_fragment>',
+        `#include <tonemapping_fragment>
+        // stripes go on after tone mapping, or the bright lawn would flatten them;
+        // the lit side has little room to get brighter, so dark rows do most of it
+        float sd = (stripe - 0.5) * (1.0 - tall);
+        gl_FragColor.rgb *= 1.0 + sd * (sd < 0.0 ? 1.3 : 0.6);`,
       );
   };
 }
@@ -132,7 +153,7 @@ export class Ground {
     const g = c.getContext('2d');
     g.setTransform(ppc, 0, 0, ppc, YARD * ppc, YARD * ppc);
     paintYard(g, lawn, -YARD, -YARD, w, h);
-    paintLawn(g, lawn);
+    paintLawn(g, lawn, { stripes: false });
     this.texture = new THREE.CanvasTexture(c);
     this.texture.colorSpace = THREE.SRGBColorSpace;
     this.texture.anisotropy = 8;
@@ -147,6 +168,14 @@ export class Ground {
     for (let i = 0; i < lawn.grid.length; i++) if (lawn.grid[i] === TALL) this.setTall(i, true);
     this.tallTex.needsUpdate = true;
 
+    // mowing stripes, same layout; the border stays plain
+    this.stripes = new Uint8Array(tw * th).fill(STRIPE_NONE);
+    this.stripeTex = new THREE.DataTexture(this.stripes, tw, th, THREE.RedFormat, THREE.UnsignedByteType);
+    this.stripeTex.magFilter = THREE.LinearFilter;
+    this.stripeTex.minFilter = THREE.LinearFilter;
+    if (lawn.shade) for (let i = 0; i < lawn.shade.length; i++) this.setStripe(i, lawn.shade[i]);
+    this.stripeTex.needsUpdate = true;
+
     const seg = 2;
     const geo = new THREE.PlaneGeometry(w, h, Math.ceil(w * seg), Math.ceil(h * seg));
     geo.rotateX(-Math.PI / 2);
@@ -157,6 +186,7 @@ export class Ground {
     const mat = new THREE.MeshLambertMaterial({ map: this.texture });
     addTallMask(mat, {
       tallMap: { value: this.tallTex },
+      stripeMap: { value: this.stripeTex },
       tallSize: { value: new THREE.Vector2(tw, th) },
       tallColor: { value: new THREE.Color(theme.tallBase) },
     });
@@ -181,12 +211,27 @@ export class Ground {
     this.dirty = true;
   }
 
+  setStripe(i, shade) {
+    const { cols } = this.lawn;
+    this.stripes[(((i / cols) | 0) + 1) * (cols + 2) + (i % cols) + 1] = shade;
+    this.stripesDirty = true;
+  }
+
   clearAll() {
     this.tall.fill(0);
     this.dirty = true;
   }
 
+  clearStripes() {
+    this.stripes.fill(STRIPE_NONE);
+    this.stripesDirty = true;
+  }
+
   update() {
+    if (this.stripesDirty) {
+      this.stripesDirty = false;
+      this.stripeTex.needsUpdate = true;
+    }
     if (!this.dirty) return;
     this.dirty = false;
     this.tallTex.needsUpdate = true;
@@ -195,6 +240,7 @@ export class Ground {
   dispose() {
     this.texture.dispose();
     this.tallTex.dispose();
+    this.stripeTex.dispose();
     for (const m of [this.mesh, this.far]) {
       m.geometry.dispose();
       m.material.dispose();

@@ -30,7 +30,6 @@ export function levelDef(n) {
   if (shaped) long *= 1.15;
   long = Math.round(long);
   const short = Math.round(long * (shaped ? 0.8 : 0.7));
-  const obstacles = n < 2 ? 0 : n < 5 ? 1 : Math.min(1 + Math.floor((n - 2) / 3), 3);
   const visit = Math.floor(n / (THEMES.length * 2)); // how many times we've been round all the worlds
   const pics = THEME_PICTURES[theme.id];
   const owners = OWNERS[theme.id];
@@ -42,14 +41,16 @@ export function levelDef(n) {
     giant,
     long,
     short,
-    obstacles: giant ? obstacles + 1 : obstacles,
-    surprises: Math.min(3 + Math.floor(n / 2), 7) + (giant ? 2 : 0),
+    // keep the lawn calm: one of each thing at most
+    obstacles: n < 2 ? 0 : 1,
+    surprises: Math.min(2 + Math.floor(n / 3), 4) + (giant ? 1 : 0),
     coins: giant ? 3 : n === 0 ? 1 : 1 + (n % 2),
     hills: n < 2 ? 0 : 1 + (n % 3),
-    ramps: n < 4 ? 0 : giant ? 2 : 1,
+    ramps: n < 4 ? 0 : 1,
     picture: pics[(n % 2 + visit * 2) % pics.length],
     owner: owners[(n % 2 + visit * 2) % owners.length],
-    powerups: n < 3 ? [] : [POWERUPS[n % 3], ...(giant || n > 8 ? [POWERUPS[(n + 1) % 3]] : [])],
-    event: n === 0 ? null : events[(n % 2 + visit) % events.length],
+    powerups: n < 3 ? [] : [POWERUPS[n % 3]],
+    // a surprise visitor on every other lawn
+    event: n % 2 === 0 ? null : events[(Math.floor(n / 2) + visit) % events.length],
   };
 }

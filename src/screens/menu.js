@@ -7,7 +7,7 @@ import { sfx } from '../audio.js';
 import { say } from '../speech.js';
 import { Button, hitButtons, playTriangle } from '../ui.js';
 import { clamp, drawStar, drawText, roundRectPath } from '../util.js';
-import { CUT_RADIUS, CUT, Lawn, MOWER_CELLS, TALL } from '../lawn.js';
+import { CUT_RADIUS, CUT, Lawn, MOWER_CELLS, STRIPE_NONE, TALL, stripeShade } from '../lawn.js';
 import { levelDef } from '../levels.js';
 import { Mower } from '../mower.js';
 import { THREE, castAll, makeLights, makeSky } from '../world3d/renderer.js';
@@ -206,8 +206,9 @@ export class MenuScreen {
           this.ground.setTall(i, false);
         }
         const p = this.mower3d.chutePos(_chute);
-        this.fx.clippings(p.x, p.y, p.z, lawn.theme.blades, 2, mower.heading + Math.PI * 0.6);
+        this.fx.clippings(p.x, p.y, p.z, lawn.theme.blades, 1, mower.heading + Math.PI * 0.6);
       }
+      for (const i of lawn.stripeAt(mower.x, mower.y, CUT_RADIUS * 0.85, stripeShade(mower.heading))) this.ground.setStripe(i, lawn.shade[i]);
     } else {
       // parked: the grass springs back up, then off we go again
       mower.update(dt, null, { x: -3, y: -1, w: COLS + 6, h: ROWS + 4 }, []);
@@ -220,6 +221,8 @@ export class MenuScreen {
             this.ground.setTall(i, true);
           }
         lawn.cutCount = 0;
+        lawn.shade.fill(STRIPE_NONE);
+        this.ground.clearStripes();
         this.grass.regrowAll();
         for (let k = 0; k < 6; k++) this.fx.sparkle(Math.random() * COLS, 0.4, Math.random() * ROWS, '#fff59d', 1.6);
       }

@@ -109,12 +109,23 @@ function noise(dur, { vol = 0.2, freq = 2000, q = 1, type = 'bandpass', when = 0
 const PENTA = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5, 1174.66, 1318.51, 1567.98, 1760.0, 2093.0];
 
 export const sfx = {
-  // grass snip; the little musical blip climbs as the lawn gets finished
-  snip(progress = 0) {
-    if (!throttle('snip', 55)) return;
-    noise(0.05, { vol: 0.12, freq: 4200, q: 0.8, type: 'highpass' });
-    const n = PENTA[Math.min(PENTA.length - 1, Math.floor(progress * PENTA.length))];
-    tone(n, 0.09, { type: 'triangle', vol: 0.05 });
+  // a soft swish of grass (the mower's own swish comes from the engine)
+  snip() {
+    if (!throttle('snip', 90)) return;
+    noise(0.14, { vol: 0.035, freq: 1600, q: 0.6, type: 'lowpass' });
+  },
+  // a gentle bell when a whole row is mowed, rising up the scale
+  rowChime(step = 0) {
+    if (!throttle('rowChime', 220)) return;
+    const f = PENTA[step % PENTA.length] / 2;
+    tone(f, 1.4, { type: 'sine', vol: 0.07, attack: 0.02 });
+    tone(f * 2, 0.9, { type: 'sine', vol: 0.025, attack: 0.02, when: 0.01 });
+    tone(f * 3, 0.6, { type: 'sine', vol: 0.012, attack: 0.02, when: 0.02 });
+  },
+  // a soft, warm chord for the quiet moment at the end of a lawn
+  calm() {
+    [261.63, 329.63, 392.0, 523.25].forEach((f, i) => tone(f, 3.2, { type: 'sine', vol: 0.05, attack: 0.4, when: i * 0.18 }));
+    tone(130.81, 3.5, { type: 'sine', vol: 0.06, attack: 0.6 });
   },
   pop() {
     if (!throttle('pop', 40)) return;
@@ -261,50 +272,75 @@ export const sfx = {
   },
 };
 
-// Putt-putt engine: a low sawtooth with a fast tremolo, louder/faster with speed.
+// A soft, low hum that rises a little with speed, plus a gentle swish of grass
+// that swells while the blades are cutting.
 export function startEngine() {
   if (!ac || engine) return;
   const o1 = ac.createOscillator();
-  o1.type = 'sawtooth';
-  o1.frequency.value = 48;
+  o1.type = 'sine';
+  o1.frequency.value = 55;
   const o2 = ac.createOscillator();
-  o2.type = 'square';
-  o2.frequency.value = 97;
+  o2.type = 'triangle';
+  o2.frequency.value = 110;
+  const o2g = ac.createGain();
+  o2g.gain.value = 0.22;
   const lp = ac.createBiquadFilter();
   lp.type = 'lowpass';
-  lp.frequency.value = 380;
+  lp.frequency.value = 260;
+  // a slow, gentle pulse rather than a putt-putt
   const trem = ac.createGain();
-  trem.gain.value = 0.6;
+  trem.gain.value = 0.85;
   const lfo = ac.createOscillator();
-  lfo.frequency.value = 14;
+  lfo.frequency.value = 6;
   const lfoAmt = ac.createGain();
-  lfoAmt.gain.value = 0.4;
+  lfoAmt.gain.value = 0.12;
   lfo.connect(lfoAmt);
   lfoAmt.connect(trem.gain);
   const out = ac.createGain();
   out.gain.value = 0;
-  const o2g = ac.createGain();
-  o2g.gain.value = 0.3;
   o1.connect(lp);
   o2.connect(o2g);
   o2g.connect(lp);
   lp.connect(trem);
   trem.connect(out);
   out.connect(sfxBus);
+
+  // the grass: looping soft noise through a gentle band
+  const grass = ac.createBufferSource();
+  grass.buffer = noiseBuf;
+  grass.loop = true;
+  const bp = ac.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 1300;
+  bp.Q.value = 0.6;
+  const glp = ac.createBiquadFilter();
+  glp.type = 'lowpass';
+  glp.frequency.value = 2600;
+  const grassOut = ac.createGain();
+  grassOut.gain.value = 0;
+  grass.connect(bp);
+  bp.connect(glp);
+  glp.connect(grassOut);
+  grassOut.connect(sfxBus);
+
   o1.start();
   o2.start();
   lfo.start();
-  engine = { o1, o2, lfo, lp, out };
+  grass.start();
+  engine = { o1, o2, lfo, lp, out, grass, grassOut, bp };
 }
 
-export function setEngine(speed01) {
+// speed01: how fast the mower goes. cut01: how much grass it's cutting right now.
+export function setEngine(speed01, cut01 = 0) {
   if (!engine) return;
   const t = ac.currentTime;
-  engine.out.gain.setTargetAtTime(0.035 + speed01 * 0.09, t, 0.08);
-  engine.o1.frequency.setTargetAtTime(46 + speed01 * 30, t, 0.1);
-  engine.o2.frequency.setTargetAtTime(93 + speed01 * 60, t, 0.1);
-  engine.lfo.frequency.setTargetAtTime(12 + speed01 * 14, t, 0.1);
-  engine.lp.frequency.setTargetAtTime(320 + speed01 * 500, t, 0.1);
+  engine.out.gain.setTargetAtTime(0.03 + speed01 * 0.05, t, 0.15);
+  engine.o1.frequency.setTargetAtTime(55 + speed01 * 14, t, 0.2);
+  engine.o2.frequency.setTargetAtTime(110 + speed01 * 28, t, 0.2);
+  engine.lfo.frequency.setTargetAtTime(5 + speed01 * 4, t, 0.2);
+  engine.lp.frequency.setTargetAtTime(240 + speed01 * 220, t, 0.2);
+  engine.grassOut.gain.setTargetAtTime(cut01 * 0.09, t, 0.12);
+  engine.bp.frequency.setTargetAtTime(1100 + cut01 * 500, t, 0.2);
 }
 
 export function stopEngine() {
@@ -312,14 +348,16 @@ export function stopEngine() {
   const e = engine;
   engine = null;
   const t = ac.currentTime;
-  e.out.gain.setTargetAtTime(0, t, 0.05);
+  e.out.gain.setTargetAtTime(0, t, 0.15);
+  e.grassOut.gain.setTargetAtTime(0, t, 0.1);
   setTimeout(() => {
     try {
       e.o1.stop();
       e.o2.stop();
       e.lfo.stop();
+      e.grass.stop();
     } catch {
       /* already stopped */
     }
-  }, 400);
+  }, 900);
 }

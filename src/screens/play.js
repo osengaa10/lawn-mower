@@ -1,10 +1,11 @@
-import { CUT_RADIUS, Lawn, MOWER_CELLS } from '../lawn.js';
+import { CUT, CUT_RADIUS, Lawn, MOWER_CELLS, TALL, stripeShade } from '../lawn.js';
 import { levelDef } from '../levels.js';
 import { Mower } from '../mower.js';
 import { Particles } from '../particles.js';
 import { MOWER_BY_ID, STICKERS } from '../catalog.js';
 import { PICTURES } from '../pictures.js';
 import { sfx, setEngine, startEngine, stopEngine } from '../audio.js';
+import { setMusicMood } from '../music.js';
 import { say } from '../speech.js';
 import { Button, hitButtons } from '../ui.js';
 import { Celebration } from './celebration.js';
@@ -30,6 +31,7 @@ import {
 const ALMOST = ['Almost done!', 'Just a little more!', 'You can do it!'];
 const TEASE = ["What's the picture?", 'I see a picture!', 'What could it be?'];
 const REVEAL_TIME = 3;
+const ADMIRE_TIME = 4;
 const _chute = new THREE.Vector3();
 
 export class PlayScreen {
@@ -73,6 +75,7 @@ export class PlayScreen {
     else this.layout();
     // the finger that tapped Play shouldn't start steering until it's lifted
     this.ignoreTouch = !!this.g.input?.down;
+    setMusicMood(this.state === 'celebrate' ? 'bouncy' : 'calm');
     // the chosen mower might have changed in the garage
     if (this.mower) {
       this.mower.skin = MOWER_BY_ID[this.g.save.mower] || MOWER_BY_ID.red;
@@ -82,6 +85,7 @@ export class PlayScreen {
 
   leave() {
     stopEngine();
+    setMusicMood('bouncy');
     this.g.persist();
   }
 
@@ -89,7 +93,7 @@ export class PlayScreen {
   // whatever is saved), null = nothing to resume (between lawns).
   snapshot() {
     if (!this.lawn) return undefined;
-    if (this.state !== 'mow' && this.state !== 'finish' && this.state !== 'reveal') return null;
+    if (this.state !== 'mow' && this.state !== 'finish' && this.state !== 'admire' && this.state !== 'reveal') return null;
     const { lawn, mower } = this;
     return { v: 2, ...lawn.serialize(), mower: { gx: mower.x, gy: mower.y, heading: mower.heading } };
   }
@@ -140,6 +144,8 @@ export class PlayScreen {
     this.hasMoved = true;
     this.milestones = this.milestones.filter((m) => m > lawn.progress);
     this.dispProgress = lawn.progress;
+    // surprises that were waiting their turn when the app closed
+    for (const i of lawn.surprises.keys()) if (lawn.grid[i] === CUT) this.revealQueue.push(i);
     say("Let's keep mowing!", { force: true });
   }
 
@@ -208,6 +214,11 @@ export class PlayScreen {
     this.hasMoved = false;
     this.actors = [];
     this.critters = [];
+    this.revealQueue = [];
+    this.revealGap = 0;
+    this.cutLevel = 0;
+    this.countRows();
+    setMusicMood('calm');
     this.particles.clear();
     this.pendingStars = 0;
     this.rig.release();
@@ -307,11 +318,15 @@ export class PlayScreen {
         this.fx.burst(mower.x, mower.h + 0.6, mower.y, 8, ['#ffffff', '#fff59d'], 0.7);
       }
       this.moveHeight(dt);
-      setEngine(Math.min(1.6, mower.speed01 * mower.speedMul));
+      this.cutLevel = Math.max(0, this.cutLevel - dt * 2.5);
+      setEngine(Math.min(1.6, mower.speed01 * mower.speedMul), this.cutLevel);
 
       if (!mower.airborne && (Math.hypot(mower.x - px, mower.y - py) > 0.01 || this.t < 0.1)) {
-        const cut = lawn.mowSegment(px, py, mower.x, mower.y, CUT_RADIUS * this.powerups.cutMul * Math.max(1, mower.scale * 0.9));
+        const R = CUT_RADIUS * this.powerups.cutMul * Math.max(1, mower.scale * 0.9);
+        const cut = lawn.mowSegment(px, py, mower.x, mower.y, R);
         if (cut.length) this.onCut(cut);
+        // lay a stripe the way we're driving (over fresh cuts and old ones alike)
+        if (mower.speed01 > 0.08) for (const i of lawn.stripeAt(mower.x, mower.y, R * 0.85, stripeShade(mower.heading))) this.ground.setStripe(i, lawn.shade[i]);
       }
       this.trails(dt);
       this.saveT += dt;
@@ -340,7 +355,7 @@ export class PlayScreen {
       if (prog >= 0.82) {
         this.sparkleT -= dt;
         if (this.sparkleT <= 0) {
-          this.sparkleT = 0.09;
+          this.sparkleT = 0.28;
           const tall = lawn.tallCells();
           if (tall.length) {
             const c = lawn.cellCenter(pick(tall));
@@ -371,13 +386,26 @@ export class PlayScreen {
         if (lawn.cutCell(i)) {
           const c = lawn.cellCenter(i);
           const h = lawn.height(c.x, c.y);
-          this.fx.sparkle(c.x, h + 0.4, c.y, '#fff59d', 1.5);
-          this.fx.clippings(c.x, h, c.y, lawn.theme.blades, 2);
+          if (this.finishDone % 2) this.fx.sparkle(c.x, h + 0.4, c.y, '#fff59d', 1.2);
+          this.fx.clippings(c.x, h, c.y, lawn.theme.blades, 1);
+          lawn.shade[i] = stripeShade(this.mower.heading);
+          this.ground.setStripe(i, lawn.shade[i]);
           this.applyCut([i]);
         }
         sfx.snip(1);
       }
-      if (this.finishDone >= this.finishList.length && this.finishT > 1.0) this.startReveal();
+      if (this.finishDone >= this.finishList.length && this.finishT > 1.0) this.startAdmire();
+    } else if (this.state === 'admire') {
+      // a quiet moment: glide slowly over the fresh stripes
+      this.mower.update(dt, null, lawn.bounds, lawn.obstacles);
+      this.moveHeight(dt);
+      this.admireT += dt;
+      const k = clamp(this.admireT / ADMIRE_TIME, 0, 1);
+      const e = k * k * (3 - 2 * k);
+      const o = this.rig.override;
+      if (lawn.cols >= lawn.rows) o.target.set(lerp(lawn.cols * 0.15, lawn.cols * 0.85, e), 0, lawn.rows * 0.55);
+      else o.target.set(lawn.cols * 0.5, 0, lerp(lawn.rows * 0.85, lawn.rows * 0.15, e));
+      if (this.admireT >= ADMIRE_TIME) this.startReveal();
     } else if (this.state === 'reveal') {
       // drive aside to show off the picture
       if (this.mower.update(dt, this.revealT < 1.6 ? this.parkSpot : null, lawn.bounds, lawn.obstacles)) sfx.boing();
@@ -391,12 +419,13 @@ export class PlayScreen {
       }
       this.fwT -= dt;
       if (this.revealT > 0.8 && this.fwT <= 0) {
-        this.fwT = rand(0.3, 0.5);
-        this.fx.firework(rand(0, lawn.cols), rand(5, 8), rand(0, lawn.rows), 1.2);
+        this.fwT = rand(0.8, 1.2);
+        this.fx.firework(rand(0, lawn.cols), rand(5, 8), rand(0, lawn.rows), 1);
         sfx.bang();
       }
       if (this.revealT >= REVEAL_TIME) {
         this.state = 'celebrate';
+        setMusicMood('bouncy');
         this.celebration.start();
       }
     } else if (this.state === 'celebrate') {
@@ -451,7 +480,22 @@ export class PlayScreen {
     this.fwT = 0;
     this.said = false;
     this.rig.swoopTopDown();
-    this.fx.confetti(this.lawn.cols / 2, this.lawn.rows / 2, Math.max(this.lawn.cols, this.lawn.rows) / 2, 160, 12);
+    this.fx.confetti(this.lawn.cols / 2, this.lawn.rows / 2, Math.max(this.lawn.cols, this.lawn.rows) / 2, 70, 12);
+    this.g.persist();
+  }
+
+  // The last blade is cut: everything goes quiet and the camera drifts low
+  // over the new stripes before the picture is shown.
+  startAdmire() {
+    const { lawn } = this;
+    stopEngine();
+    this.state = 'admire';
+    this.admireT = 0;
+    this.hint = -1;
+    this.grass.clearAll();
+    this.ground.clearAll();
+    this.rig.override = { target: new THREE.Vector3(lawn.cols * 0.15, 0, lawn.rows * 0.55), dist: Math.max(lawn.cols, lawn.rows) * 0.75 + 5, pitch: 0.55 };
+    sfx.calm();
     this.g.persist();
   }
 
@@ -468,21 +512,45 @@ export class PlayScreen {
     return spots[0];
   }
 
+  // How much grass is in each row and column, so finishing one can chime.
+  countRows() {
+    const { lawn } = this;
+    this.rowLeft = new Int16Array(lawn.rows);
+    this.colLeft = new Int16Array(lawn.cols);
+    this.rowsDone = 0;
+    for (let i = 0; i < lawn.grid.length; i++)
+      if (lawn.grid[i] === TALL) {
+        this.rowLeft[(i / lawn.cols) | 0]++;
+        this.colLeft[i % lawn.cols]++;
+      }
+  }
+
   applyCut(cells) {
     const { lawn } = this;
     for (const i of cells) {
       this.grass.cut(i);
       this.ground.setTall(i, false);
-      if (lawn.surprises.has(i)) this.reveal(i);
+      if (lawn.surprises.has(i) && !this.revealQueue.includes(i)) this.revealQueue.push(i);
+      // a soft chime, a little higher each time, when a whole row or column is done
+      const r = (i / lawn.cols) | 0;
+      const c = i % lawn.cols;
+      const rowDone = --this.rowLeft[r] === 0;
+      const colDone = --this.colLeft[c] === 0;
+      if (rowDone || colDone) {
+        if (this.state === 'mow') sfx.rowChime(this.rowsDone);
+        this.rowsDone++;
+      }
+      if (this.rowLeft[r] < 0) this.rowLeft[r] = 0;
+      if (this.colLeft[c] < 0) this.colLeft[c] = 0;
     }
   }
 
   onCut(cells) {
     const { lawn, mower } = this;
     if (lawn.cutCount > 12) this.hasMoved = true;
-    sfx.snip(lawn.progress);
+    this.cutLevel = Math.min(1, this.cutLevel + cells.length * 0.12);
     // clippings fly out of the chute on the mower's side
-    const n = Math.min(5, cells.length);
+    const n = Math.min(2, cells.length);
     const p = this.mower3d.chutePos(_chute);
     for (let k = 0; k < n; k++) this.fx.clippings(p.x, p.y, p.z, lawn.theme.blades, 2, mower.heading + Math.PI * 0.6);
     this.applyCut(cells);
@@ -498,14 +566,14 @@ export class PlayScreen {
     const by = mower.h + 0.3 * mower.scale;
     this.puffT -= dt;
     if (this.puffT <= 0) {
-      this.puffT = 0.22;
+      this.puffT = 0.4;
       this.fx.puff(bx, by + 0.6 * mower.scale, bz, mower.scale);
     }
     const trail = mower.skin.trail;
     if (!trail) return;
     this.trailT -= dt;
     if (this.trailT > 0) return;
-    this.trailT = trail === 'flame' ? 0.03 : 0.06;
+    this.trailT = trail === 'flame' ? 0.05 : 0.12;
     if (trail === 'sparkle') this.fx.sparkle(bx, by, bz, pick(['#fff59d', '#ffffff', '#e1bee7']), 1.4);
     else if (trail === 'hearts') this.fx.emoji('💖', bx, by + 0.4, bz, { size: 0.7, life: 0.9, vy: 1.2, spin: rand(-1, 1) });
     else if (trail === 'rainbow') this.fx.sparkle(bx, by, bz, `hsl(${Math.round((this.t * 360) % 360)}, 90%, 60%)`, 2);
@@ -516,7 +584,7 @@ export class PlayScreen {
   awardStar(x, y, z) {
     const { g } = this;
     sfx.pop();
-    this.fx.burst(x, y, z, 14, ['#ffd54f', '#fff59d', '#ffffff'], 0.8);
+    this.fx.burst(x, y, z, 8, ['#ffd54f', '#fff59d', '#ffffff'], 0.7);
     const p = this.rig.toScreen(x, y, z);
     this.actors.push({ type: 'star', x: p.x, y: p.y, sx: p.x, sy: p.y, t: 0, cell: clamp(this.rig.pxPerCell(x, y, z), 16, 60) });
     g.save.stars += 1;
@@ -560,7 +628,7 @@ export class PlayScreen {
       sfx.surprise();
       say(first ? `You found a ${s.name}!` : `${s.name}!`, { force: first });
     }
-    this.fx.burst(c.x, h + 0.5, c.y, s.rare ? 30 : 16);
+    this.fx.burst(c.x, h + 0.5, c.y, s.rare ? 16 : 8, undefined, 0.8);
     // run away from the mower
     let dx = c.x - mower.x;
     let dy = c.y - mower.y;
@@ -639,6 +707,13 @@ export class PlayScreen {
   }
 
   updateActors(dt) {
+    // surprises come out one at a time
+    this.revealGap = Math.max(0, this.revealGap - dt);
+    if (this.revealQueue.length && this.revealGap <= 0 && this.state !== 'celebrate') {
+      this.revealGap = 0.9;
+      const i = this.revealQueue.shift();
+      if (this.lawn.surprises.has(i)) this.reveal(i);
+    }
     for (const a of this.actors) {
       a.t += dt;
       if (a.type === 'star') {
@@ -751,7 +826,7 @@ export class PlayScreen {
       ctx.globalAlpha = 1;
     }
 
-    if (this.state === 'reveal' || this.state === 'celebrate') {
+    if (this.state === 'admire' || this.state === 'reveal' || this.state === 'celebrate') {
       this.particles.draw(ctx);
       this.drawActors(ctx, 'star');
       this.drawActors(ctx, 'book');
