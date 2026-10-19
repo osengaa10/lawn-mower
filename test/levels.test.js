@@ -43,10 +43,10 @@ test('pictures and owners belong to the lawn\'s world, and change between lawns'
 test('lawn sizes stay in a sensible range', () => {
   for (let n = 0; n < 200; n++) {
     const d = levelDef(n);
-    assert.ok(d.long >= 10 && d.long <= 30, `lawn ${n} long side ${d.long}`);
-    assert.ok(d.short >= 7 && d.short <= d.long, `lawn ${n} short side ${d.short}`);
+    assert.ok(d.long >= 15 && d.long <= 36, `lawn ${n} long side ${d.long}`);
+    assert.ok(d.short >= 10 && d.short <= d.long, `lawn ${n} short side ${d.short}`);
     // keeps the grass instance count reasonable on an iPad
-    assert.ok(d.long * d.short <= 30 * 24);
+    assert.ok(d.long * d.short <= 36 * 28);
   }
 });
 

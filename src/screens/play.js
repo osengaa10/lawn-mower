@@ -237,6 +237,11 @@ export class PlayScreen {
 
   focus() {
     const m = this.mower;
+    // on a lawn bigger than the screen, slide over so the hint is in view too
+    if (this.hint >= 0 && this.rig.follow) {
+      const c = this.lawn.cellCenter(this.hint);
+      return { x: (m.x + c.x) / 2, y: (m.y + c.y) / 2, h: m.h };
+    }
     return { x: m.x, y: m.y, h: m.h };
   }
 
@@ -245,7 +250,8 @@ export class PlayScreen {
     const lawn = this.lawn;
     this.rig.setView(g.W, g.H, this.hudTop());
     this.rig.fitLawn(lawn.cols, lawn.rows, lawn.maxHeight, MOWER_CELLS);
-    const far = this.rig.baseDist * 3;
+    // far enough that the swoop up over a big lawn stays out of the fog
+    const far = Math.max(this.rig.baseDist, this.rig.topDownDist) * 3;
     if (this.scene.fog) {
       this.scene.fog.near = far * 0.5;
       this.scene.fog.far = far * 1.6;

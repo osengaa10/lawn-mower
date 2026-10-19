@@ -4,6 +4,7 @@ import { THEME_PICTURES } from './pictures.js';
 
 // The first lawns are small open rectangles. After that the shapes rotate,
 // the world changes every two lawns, and lawns grow a little at a time.
+// Most lawns are bigger than the screen, so the camera follows the mower.
 // Everything here depends only on n, so the street of finished lawns can be
 // rebuilt from the number of lawns mowed.
 const SHAPES = ['rect', 'rect', 'roundrect', 'oval', 'heart', 'cloud', 'star', 'rect', 'diamond', 'plus', 'heart', 'oval', 'cloud', 'star', 'roundrect'];
@@ -26,7 +27,7 @@ export function levelDef(n) {
   const giant = n % 3 === 2;
   const shaped = shape !== 'rect' && shape !== 'roundrect';
   // round/pointy shapes only fill part of their box, so give them a bigger box
-  let long = giant ? Math.min(17 + n * 0.3, 22) : Math.min(10 + n * 0.6, 16);
+  let long = giant ? Math.min(25 + n * 0.3, 30) : Math.min(15 + n * 0.6, 23);
   if (shaped) long *= 1.15;
   long = Math.round(long);
   const short = Math.round(long * (shaped ? 0.8 : 0.7));
